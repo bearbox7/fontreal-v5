@@ -1,3 +1,5 @@
+import { readApiJson } from "./api-response";
+
 export async function requestGlyph(
   payload: Record<string, unknown>,
   fetcher: typeof fetch = fetch,
@@ -18,14 +20,7 @@ export async function requestGlyph(
         : "单字生成请求已中断或网络不可用。请保持当前页面打开，并检查网络后再试。",
     );
   }
-  let data: any;
-  try {
-    data = await response.json();
-  } catch {
-    throw Error(
-      `单字服务未返回有效数据（HTTP ${response.status}），请稍后再试。`,
-    );
-  }
+  const data = await readApiJson(response, "单字");
   if (!response.ok)
     throw Error(data.error || `单字生成失败（HTTP ${response.status}）`);
   if (typeof data.image !== "string" || !data.image.startsWith("data:image/"))
