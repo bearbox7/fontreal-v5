@@ -528,8 +528,15 @@ export default function Studio() {
         c = document.createElement("canvas");
       c.width = img.width * s;
       c.height = img.height * s;
-      c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
-      R(c.toDataURL("image/jpeg", 0.88));
+      const ctx = c.getContext("2d")!;
+      // Preserve fine serif terminals and stroke outlines without lossy JPEG artifacts.
+      // Composite transparency onto white so image models see black-on-white lettering.
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      const lossless = c.toDataURL("image/png");
+      // Fall back for photographic references to stay inside the API payload limit.
+      R(lossless.length < 4_800_000 ? lossless : c.toDataURL("image/jpeg", 0.94));
       A(null);
       B("参考图已添加，可分析风格或手动调整");
     } catch {
@@ -950,11 +957,6 @@ export default function Studio() {
             </p>
             <span className="little-seal">字</span>
           </div>
-          <a className="legacy-launch" href="/tools/zijing-classic-editor.html" target="_blank" rel="noopener noreferrer">
-            <FileType size={17} />
-            经典钢笔 / 矩形绘制器
-            <ArrowUpRight size={14} />
-          </a>
           <button onClick={() => U("guide")}>
             <BookOpen size={17} />
             使用指南
