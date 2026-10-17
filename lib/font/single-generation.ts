@@ -34,6 +34,8 @@ export async function runSingleGeneration(
   },
   dependencies: {
     request: (payload: Record<string, unknown>) => Promise<ImageResult>;
+    /** Optional neutral character skeleton, provided only for supported AI models. */
+    characterTemplate?: (character: string) => Promise<string | undefined>;
     trace: (image: string) => Promise<TraceResult>;
     checkpoint?: (edits: GlyphEdits) => Promise<void>;
     progress: (done: number, total: number, character: string) => void;
@@ -64,11 +66,17 @@ export async function runSingleGeneration(
       };
     } else {
       dependencies.phase?.("request", done, plan.characters.length, character);
+      // Style image has priority; a second neutral skeleton guides only
+      // target-character structure and prevents accidental glyph substitution.
+      const structureImage = input.provider === "bailian" && input.reference
+        ? await dependencies.characterTemplate?.(character)
+        : undefined;
       source = await dependencies.request({
         provider: input.provider,
         character,
         style: input.style,
         image: input.reference,
+        ...(structureImage ? { characterReference: structureImage } : {}),
         variation: (previous?.version || 0) + 1,
       });
       generatedStyle = input.style;
