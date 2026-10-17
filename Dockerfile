@@ -1,4 +1,4 @@
-# FontReal V5: Next.js 16 standalone + Python/vector conversion utilities
+# Cloud deployment: npm/Next build + isolated raster/vector conversion service.
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./

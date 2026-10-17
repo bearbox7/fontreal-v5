@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {glyphCode,resolveGlyphMentions,glyphReferenceInstructions} from '../lib/font/glyph-mentions.ts';
+assert.equal(glyphCode('幸'),'U+5E78');
+assert.deepEqual(resolveGlyphMentions(['横画参考 @幸(U+5E78)，末端像 @字','粗细参考 @U+5e78'], '字幸').references,[{character:'幸',code:'U+5E78'},{character:'字',code:'U+5B57'}]);
+assert.equal(resolveGlyphMentions(['参考 @幸(U+5B57)'],'字幸').errors.length,1);
+assert.equal(resolveGlyphMentions(['参考 @U+110000'],'字幸').errors.length,1);
+assert.equal(resolveGlyphMentions(['参考 @没'],'字幸').errors.length,1);
+assert.equal(resolveGlyphMentions(['@字 @有 @新 @生 @风'],'字有新生风').errors.length,1);
+assert.match(glyphReferenceInstructions([{character:'幸',code:'U+5E78'}],3),/Image 3/);
+assert.match(glyphReferenceInstructions([{character:'幸',code:'U+5E78'}],3),/do not replace it/);
+console.log('Glyph mentions passed: character/Unicode resolution, stable-ID validation, dedup across notes, missing/invalid references and 4-reference limit.');
