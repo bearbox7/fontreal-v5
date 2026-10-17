@@ -180,6 +180,43 @@ await assert.rejects(
 );
 assert.deepEqual(calls, ["乙"]);
 assert.deepEqual(singleGenerationPlan("乙丙", saved).images, ["乙"]);
+
+const templateCalls = [];
+const bailianPayloads = [];
+await runSingleGeneration(
+  {text:"永字",reference:"design-reference",provider:"bailian",style,existing:{}},
+  {
+    request: async payload => {
+      bailianPayloads.push(payload);
+      return {image:"image:" + payload.character,model:"qwen-image-3.0"};
+    },
+    characterTemplate: async character => {
+      templateCalls.push(character);
+      return character === "永" ? "data:image/png;base64,skeleton" : undefined;
+    },
+    trace,
+    progress: () => {},
+  },
+);
+assert.deepEqual(templateCalls, ["永","字"]);
+assert.equal(bailianPayloads[0].image,"design-reference");
+assert.equal(bailianPayloads[0].characterReference,"data:image/png;base64,skeleton");
+assert.equal(bailianPayloads[1].characterReference,undefined);
+let unexpectedSkeleton=false;
+await runSingleGeneration(
+  {text:"字",reference:"style",provider:"openai",style,existing:{}},
+  {
+    request: async payload => {
+      assert.equal(payload.characterReference,undefined);
+      return {image:"image:字"};
+    },
+    characterTemplate: async () => {unexpectedSkeleton=true;return "unused";},
+    trace,
+    progress: () => {},
+  },
+);
+assert.equal(unexpectedSkeleton,false,"other providers must not fetch a skeleton");
+
 console.log(
   "Single-character resume passed: partial failure, saved-image recovery, non-contiguous skip, restart after reload, all-done no requests, original glyph protection, old-image reuse, storage failure. No live AI calls.",
 );
