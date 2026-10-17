@@ -55,6 +55,44 @@ try {
   assert.equal(result.image,png);
   assert.equal(calls,2);
 
+  // Alibaba documents rotating bucket identifiers and two OSS host styles.
+  for (const supported of [
+    "https://dashscope-a717.oss-accelerate.aliyuncs.com/glyph.png?Expires=999",
+    "https://dashscope-123abc.oss-cn-beijing.aliyuncs.com/glyph.png?Expires=999",
+    "https://dashscope-result-sz.oss-cn-shenzhen.aliyuncs.com/glyph.png?Expires=999",
+  ]) {
+    let downloaded = false;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes("/multimodal-generation/generation"))
+        return Response.json({output:{choices:[{message:{content:[{image:supported}]}}]}});
+      assert.equal(String(url),supported);
+      assert.equal(init.redirect,"error");
+      downloaded = true;
+      return new Response(Buffer.from("hello"),{headers:{"content-type":"image/png"}});
+    };
+    const generated = await generateGlyph("bailian","永",style);
+    assert.equal(generated.image,png);
+    assert.equal(downloaded,true);
+  }
+
+  // Malicious or unsupported hosts must be blocked before any image fetch.
+  for (const rejected of [
+    "https://dashscope-a717.oss-cn-beijing.aliyuncs.com.evil.example/glyph.png",
+    "https://dashscope-a717.oss-accelerate.aliyuncs.com.evil.example/glyph.png",
+    "https://notdashscope-a717.oss-accelerate.aliyuncs.com/glyph.png",
+    "http://dashscope-a717.oss-cn-beijing.aliyuncs.com/glyph.png",
+    "https://dashscope-a717.oss-cn-beijing.aliyuncs.com:8443/glyph.png",
+    "https://attacker@dashscope-a717.oss-cn-beijing.aliyuncs.com/glyph.png",
+  ]) {
+    let count = 0;
+    globalThis.fetch = async () => {
+      count++;
+      return Response.json({output:{choices:[{message:{content:[{image:rejected}]}}]}});
+    };
+    await assert.rejects(()=>generateGlyph("bailian","永",style),/不受支持/);
+    assert.equal(count,1,"must not follow an untrusted image URL");
+  }
+
   const analysis = {
     description:"黑体",category:"几何",tags:["方正"],characters:[],
     style: {base:"sans",weight:600,width:100,roundness:0,slant:0,tracking:0},
