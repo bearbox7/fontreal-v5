@@ -153,9 +153,18 @@ async function bailianImageResult(data: any): Promise<string> {
   if (typeof image !== "string") throw new ProviderError("百炼未返回字形图片，请检查模型与提示词。");
   let url: URL;
   try { url = new URL(image); } catch { throw new ProviderError("百炼图片地址无效。"); }
+  // Bailian's OSS image bucket names are dynamic: official responses may use
+  // dashscope-{id}.oss-accelerate.aliyuncs.com or
+  // dashscope-{id}.oss-cn-{region}.aliyuncs.com, not only dashscope-result-*.
+  // Allow these exact Alibaba Cloud hostname patterns only (not arbitrary URLs).
+  const allowedOssHost =
+    /^dashscope-[a-z0-9-]+\.oss-(?:accelerate|cn-[a-z0-9-]+)\.aliyuncs\.com$/.test(url.hostname);
   if (url.protocol !== "https:" || url.username || url.password ||
-      !/^dashscope-result-[a-z0-9-]+\.oss-[a-z0-9-]+\.aliyuncs\.com$/.test(url.hostname))
+      url.port || !allowedOssHost) {
+    // Log only the hostname, never the URL: signed OSS query strings contain credentials.
+    console.error("Bailian rejected image download host:", url.hostname);
     throw new ProviderError("百炼返回了不受支持的图片下载地址。");
+  }
   let response: Response;
   try {
     response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(45000) });
