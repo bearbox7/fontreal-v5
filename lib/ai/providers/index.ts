@@ -22,7 +22,7 @@ function requiredModel(name: string) {
   return value;
 }
 function openaiURL(path: string) {
-  const base = new URL(env("OPENAI_BASE_URL") || "https://api.openai.com/v1");
+  const base = new URL(env("OPENAI_BASE_URL") || "https://api.302.ai/v1");
   if (
     base.protocol !== "https:" ||
     base.username ||
