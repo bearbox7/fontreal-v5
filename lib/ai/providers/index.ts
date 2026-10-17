@@ -121,11 +121,16 @@ function splitImage(image: string) {
 }
 // Use only official Bailian inference domains to avoid arbitrary upstream requests.
 function bailianURL(path: string) {
-  const base = new URL(env("BAILIAN_BASE_URL") || "https://dashscope.aliyuncs.com");
+  let base: URL;
+  try {
+    base = new URL(env("BAILIAN_BASE_URL") || "https://dashscope.aliyuncs.com");
+  } catch {
+    throw new ProviderError("百炼接口地址不是有效的 HTTPS URL。", 503);
+  }
   const hostname = base.hostname;
   const official = hostname === "dashscope.aliyuncs.com" ||
     hostname === "dashscope-intl.aliyuncs.com" ||
-    /^[a-z0-9-]+\.(?:cn-beijing|ap-southeast-1|eu-central-1|ap-northeast-1)\.maas\.aliyuncs\.com$/.test(hostname);
+    /^[a-z0-9-]+\.(?:cn-beijing|ap-southeast-1|eu-central-1|ap-northeast-1|us-east-1|cn-hongkong)\.maas\.aliyuncs\.com$/.test(hostname);
   if (!official || base.protocol !== "https:" || base.username || base.password ||
       base.search || base.hash || base.pathname !== "/")
     throw new ProviderError("阿里云百炼接口地址无效，请使用与 API Key 同地域的官方域名。", 503);
@@ -146,7 +151,8 @@ async function bailianImageResult(data: any): Promise<string> {
   bailianError(data);
   const image = data.output?.choices?.[0]?.message?.content?.find((part: any) => part.image)?.image;
   if (typeof image !== "string") throw new ProviderError("百炼未返回字形图片，请检查模型与提示词。");
-  const url = new URL(image);
+  let url: URL;
+  try { url = new URL(image); } catch { throw new ProviderError("百炼图片地址无效。"); }
   if (url.protocol !== "https:" || url.username || url.password ||
       !/^dashscope-result-[a-z0-9-]+\.oss-[a-z0-9-]+\.aliyuncs\.com$/.test(url.hostname))
     throw new ProviderError("百炼返回了不受支持的图片下载地址。");
@@ -264,6 +270,7 @@ export async function analyzeFont(
           { role: "user", content },
         ],
         response_format: { type: "json_object" },
+        enable_thinking: false,
       }),
     });
     bailianError(data);
