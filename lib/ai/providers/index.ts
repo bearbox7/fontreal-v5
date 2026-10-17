@@ -4,7 +4,8 @@ import { FONT_ANALYSIS_PROMPT, STYLE_SCHEMA } from "@/prompts/font-analysis";
 import { glyphReferenceInstructions, type GlyphReference } from "@/lib/font/glyph-mentions";
 import { feedbackInstructions, type GlyphFeedback } from "@/lib/font/glyph-feedback";
 import { glyphPrompt } from "@/prompts/glyph-generation";
-export type ProviderName = "openai" | "gemini";
+import { grsaiAnalyze, grsaiGenerate, GrsaiError } from "@/lib/ai/grsai";
+export type ProviderName = "openai" | "gemini" | "grsai";
 export class ProviderError extends Error {
   constructor(
     message: string,
@@ -37,6 +38,7 @@ export function providerStatus() {
   return {
     openai: !!(env("OPENAI_API_KEY") && env("OPENAI_ANALYSIS_MODEL") && env("OPENAI_IMAGE_MODEL")),
     gemini: !!(env("GEMINI_API_KEY") && env("GEMINI_ANALYSIS_MODEL") && env("GEMINI_IMAGE_MODEL")),
+    grsai: !!(env("GRSAI_API_KEY") && env("GRSAI_ANALYSIS_MODEL") && env("GRSAI_IMAGE_MODEL")),
   };
 }
 const resultSchema = z.object({
@@ -157,6 +159,15 @@ export async function analyzeFont(
   provider: ProviderName,
   input: { image?: string; prompt?: string },
 ): Promise<{ analysis: Analysis; model: string; prompt: string }> {
+  if (provider === "grsai") {
+    try {
+      const {text,model} = await grsaiAnalyze(input);
+      return {analysis: resultSchema.parse(JSON.parse(text)),model,prompt:FONT_ANALYSIS_PROMPT};
+    } catch (e) {
+      if (e instanceof GrsaiError) throw new ProviderError(e.message,e.status);
+      throw new ProviderError("GrsAI 字体风格分析格式错误，请调整参考图重试。");
+    }
+  }
   const apiKey = key(provider);
   let output: string;
   let model: string;
@@ -279,6 +290,18 @@ async function generateImage(
   size = "1024x1024",
   quality = "low",
 ) {
+  if (provider === "grsai") {
+    try {
+      const response = await grsaiGenerate(prompt,images,size,quality);
+      return {
+        image:response.image,model:response.model,prompt,parameters:style,
+        createdAt:new Date().toISOString(),
+      };
+    } catch (e) {
+      if (e instanceof GrsaiError) throw new ProviderError(e.message,e.status);
+      throw new ProviderError("GrsAI 字形生成失败，请检查 Render 日志。");
+    }
+  }
   const apiKey = key(provider);
   let model: string;
   let result: string;
