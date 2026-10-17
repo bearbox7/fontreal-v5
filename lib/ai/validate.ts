@@ -14,7 +14,16 @@ export const style = z.object({
 });
 export function guard(request: Request, maxBytes = 6500000) {
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin)
+  // Cloudflare Pages forwards requests from the public domain to the Render
+  // server. Render can see its own hostname as request.url while the browser
+  // correctly sends Origin: https://fontreal.pages.dev.
+  // Only trust the canonical site and exact same-origin requests. Never trust
+  // an arbitrary X-Forwarded-Host header or use an open CORS wildcard.
+  const allowedOrigins = new Set([
+    new URL(request.url).origin,
+    "https://fontreal.pages.dev",
+  ]);
+  if (origin && !allowedOrigins.has(origin))
     return Response.json({ error: "不支持跨站请求。" }, { status: 403 });
   if (Number(request.headers.get("content-length")) > maxBytes)
     return Response.json(
