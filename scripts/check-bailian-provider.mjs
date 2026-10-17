@@ -45,7 +45,7 @@ try {
       assert.match(body.input.messages[0].content.at(-1).text, /图1：风格母版/);
       assert.match(body.input.messages[0].content.at(-1).text, /图2：当前汉字的标准结构骨架/);
       assert.match(body.input.messages[0].content.at(-1).text, /不要模仿图2的字体笔画/);
-      assert.match(body.input.messages[0].content.at(-1).text, /目标汉字/);
+      assert.match(body.input.messages[0].content.at(-1).text, /指定汉字/);
       assert.equal(body.parameters.size, "1024*1024");
       assert.equal(body.parameters.prompt_extend, false);
       return Response.json({output:{choices:[{message:{content:[{image:cdn}]}}]}});
