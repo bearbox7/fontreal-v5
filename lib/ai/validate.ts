@@ -1,5 +1,5 @@
 import { z } from "zod";
-export const provider = z.enum(["openai", "gemini"]);
+export const provider = z.enum(["openai", "gemini", "grsai"]);
 export const image = z
   .string()
   .max(6000000)
