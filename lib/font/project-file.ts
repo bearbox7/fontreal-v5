@@ -82,7 +82,7 @@ const sheet = z.object({
     .min(1)
     .max(72),
 });
-const provider = z.enum(["openai", "gemini"]);
+const provider = z.enum(["openai", "gemini", "grsai"]);
 const capacity = z.union([z.literal(32), z.literal(72)]);
 const batch = z.object({
   id: text(128),
