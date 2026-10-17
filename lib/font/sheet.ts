@@ -1,4 +1,5 @@
 import { loadBase, vectorizeDetailed } from "./engine";
+import { readApiJson } from "./api-response";
 import {
   SHEET,
   sheetLayout,
@@ -159,7 +160,7 @@ export async function generateTestSheets(
         style,
       }),
     });
-    const data: any = await response.json();
+    const data = await readApiJson(response, "大图生成");
     if (!response.ok) throw Error(data.error || "大图生成失败");
     sheets.push(await sliceSheet(data));
     onProgress(Math.min(i + capacity, chars.length), chars.length);
