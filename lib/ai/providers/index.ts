@@ -266,7 +266,7 @@ export async function analyzeFont(
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: FONT_ANALYSIS_PROMPT + " Return a raw JSON object, no Markdown." },
+          { role: "system", content: FONT_ANALYSIS_PROMPT + " Return a raw JSON object, no Markdown. Follow this exact JSON schema: " + JSON.stringify(STYLE_SCHEMA) },
           { role: "user", content },
         ],
         response_format: { type: "json_object" },
