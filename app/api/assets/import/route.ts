@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const output=await new Promise<string>((resolve,reject)=>{
       const child=spawn("python3",[path.join(process.cwd(),"server_tools","import_cli.py"),ext,character],{
         cwd:path.join(process.cwd(),"server_tools"),shell:false,
-        env:{PATH:process.env.PATH||"/usr/local/bin:/usr/bin:/bin",HOME:"/tmp",PYTHONUNBUFFERED:"1"},
+        env:{NODE_ENV:process.env.NODE_ENV||"production",PATH:process.env.PATH||"/usr/local/bin:/usr/bin:/bin",HOME:"/tmp",PYTHONUNBUFFERED:"1"},
         stdio:["pipe","pipe","pipe"]
       });
       let text="";
