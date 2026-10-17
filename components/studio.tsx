@@ -1947,7 +1947,7 @@ export default function Studio() {
               <>
                 <div className="eyebrow">AI CONNECTION</div>
                 <h2>AI 服务设置</h2>
-                <p>选择已在服务器配置的服务。密钥不会存储在浏览器。</p>
+                <p>OpenAI 与 Google 可以同时启用；每次生成选择一个服务。密钥只保存在服务器。</p>
                 {(["openai", "gemini"] as const).map((p) => (
                   <button
                     key={p}
@@ -1955,23 +1955,23 @@ export default function Studio() {
                     onClick={() => Q(p)}
                   >
                     <strong>
-                      {p === "openai" ? "GPT Image · 302.AI" : "Google Gemini"}
+                      {p === "openai" ? "OpenAI · GPT Image" : "Google Gemini"}
                     </strong>
                     <span className={"dot " + (status[p] ? "green" : "")} />
                     {status[p] ? "已配置" : "未配置"}
                   </button>
                 ))}
                 <div className="info-box">
-                  GPT Image 支持 4K 大图批量测试和单字重绘。Gemini
-                  使用逐字生成。密钥由服务器保管。
+                  OpenAI GPT Image 支持 4K 大图批量测试和单字重绘。Gemini
+                  支持逐字生成和图片分析。两家服务分别计费，密钥由服务器保管。
                 </div>
                 <details>
                   <summary>开发者配置说明</summary>
                   <p>
-                    在服务器环境中设置 <code>OPENAI_API_KEY</code> 或{" "}
+                    在 Render 中同时设置 <code>OPENAI_API_KEY</code> 和{" "}
                     <code>GEMINI_API_KEY</code>{" "}
-                    后重新部署。可通过环境变量覆盖分析与图像模型。使用 OpenAI
-                    托管密钥时，请启用 OpenAI Developers 插件。
+                    并分别设置 ANALYSIS_MODEL、IMAGE_MODEL，再重新部署。OpenAI 官方接口
+                    使用 <code>OPENAI_BASE_URL=https://api.openai.com/v1</code>。建议设置 <code>STUDIO_PASSWORD</code>，避免公开网站产生意外调用费用。
                   </p>
                 </details>
                 <button className="primary wide" onClick={() => U("")}>
