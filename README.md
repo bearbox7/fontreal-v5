@@ -66,6 +66,27 @@ docker run --rm -p 8080:8080 -e STUDIO_PASSWORD=your-strong-password zijing-zifa
 
 然后访问 `http://127.0.0.1:8080`。**公网 URL 需要部署到使用者自己的云账户后才能获得，压缩包本身没有公网域名。** 默认项目保存在浏览器 IndexedDB，不跨浏览器同步。
 
+## 阿里云百炼 Qwen Image 接入（可选）
+
+FontReal 可在 **AI 服务设置**中独立选择 **阿里云百炼 · Qwen Image**，支持参考图风格分析、单字生成和参考图重绘；不需要更改原有 OpenAI 或 Gemini 密钥。已有的单字节点编辑、矢量导入和 TTF/OTF 导出均保持不变。**32/72 字整版大图模式仍仅支持 OpenAI**，百炼请选择逐字生成模式；逐字调用可能产生多次计费。
+
+在 Render → fontreal-v5 → Environment 中配置：
+
+```dotenv
+BAILIAN_API_KEY=请填百炼控制台创建的密钥（不要提交到 GitHub）
+BAILIAN_BASE_URL=https://dashscope.aliyuncs.com
+BAILIAN_ANALYSIS_MODEL=qwen3-vl-plus
+BAILIAN_IMAGE_MODEL=qwen-image-3.0
+```
+
+**地域必须一致**：北京地区采用 `https://dashscope.aliyuncs.com`；新加坡地区采用 `https://dashscope-intl.aliyuncs.com`。若使用百炼新版业务空间专属域名，请将 `BAILIAN_BASE_URL` 改成与你的业务空间一致的官方 `https://{WorkspaceId}.<region>.maas.aliyuncs.com` **根域名**（不带 `/api/v1`）。模型在该地域不可用时，请在控制台选用支持的 Qwen 视觉分析模型和 Qwen-Image 模型，不能跨地域复用密钥。
+
+Qwen-Image 3.0 每次编辑最多支持 **3 张参考图片**。如果绘制时需要同时传入更多跨字参考、标注图，可根据控制台可用模型切换为支持最多 10 张参考图的 `qwen-image-2.1` 系列，并先进行单字测试。图像生成接口返回的临时签名图片由服务器验证并转换为 PNG/JPEG/WEBP Data URL，避免 24 小时后原始链接失效。
+
+**已配置 ≠ API 成功或有免费额度**：绿色状态点只说明 Render 已设置密钥和模型变量。百炼是否提供试用额度与模型地域相关，请在控制台确认并配置费用上限。建议首次只生成一个「永」字，不要直接运行大量汉字扩字。不要将 API Key 贴在聊天、截图或 GitHub。
+
+百炼 API 官方文档：[Qwen Image 生成与编辑](https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference) · [视觉模型 OpenAI 兼容接口](https://help.aliyun.com/zh/model-studio/qwen-vl-compatible-with-openai)。
+
 ## 五、设计/技术继承关系
 
 - **来自上传的字坊包**：Next 前端、UI、字体风格参数、字体引擎、AI 接口框架、字形卡片、扩字、节点编辑、IndexedDB 和 TTF/OTF 输出。Noto 字体子集、许可文件和第三方 Potrace 许可照原样保留。

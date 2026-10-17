@@ -82,7 +82,7 @@ const sheet = z.object({
     .min(1)
     .max(72),
 });
-const provider = z.enum(["openai", "gemini"]);
+const provider = z.enum(["openai", "gemini", "bailian"]);
 const capacity = z.union([z.literal(32), z.literal(72)]);
 const batch = z.object({
   id: text(128),
@@ -232,11 +232,11 @@ export function parseProjectFile(
         .filter((c) => c.trim())
         .slice(0, 72)
         .join(""),
-      provider: Object.values(value.edits).some((e) =>
-        e.model?.startsWith("gemini"),
-      )
-        ? "gemini"
-        : "openai",
+      provider: Object.values(value.edits).some((e) => e.model?.startsWith("qwen-image"))
+        ? "bailian"
+        : Object.values(value.edits).some((e) => e.model?.startsWith("gemini"))
+          ? "gemini"
+          : "openai",
       batchMode: true,
       sheets: [],
       sheetStamp: "",
