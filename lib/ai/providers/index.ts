@@ -4,7 +4,7 @@ import { FONT_ANALYSIS_PROMPT, STYLE_SCHEMA } from "@/prompts/font-analysis";
 import { glyphReferenceInstructions, type GlyphReference } from "@/lib/font/glyph-mentions";
 import { feedbackInstructions, type GlyphFeedback } from "@/lib/font/glyph-feedback";
 import { glyphPrompt } from "@/prompts/glyph-generation";
-export type ProviderName = "openai" | "gemini";
+export type ProviderName = "openai" | "gemini" | "bailian";
 export class ProviderError extends Error {
   constructor(
     message: string,
@@ -37,6 +37,7 @@ export function providerStatus() {
   return {
     openai: !!(env("OPENAI_API_KEY") && env("OPENAI_ANALYSIS_MODEL") && env("OPENAI_IMAGE_MODEL")),
     gemini: !!(env("GEMINI_API_KEY") && env("GEMINI_ANALYSIS_MODEL") && env("GEMINI_IMAGE_MODEL")),
+    bailian: !!(env("BAILIAN_API_KEY") && env("BAILIAN_ANALYSIS_MODEL") && env("BAILIAN_IMAGE_MODEL")),
   };
 }
 const resultSchema = z.object({
@@ -81,7 +82,7 @@ async function request(url: string, init: RequestInit, timeout = 65000) {
     let detail = "";
     try {
       const body: any = await r.json();
-      detail = String(body.error?.message || body.error?.status || "")
+      detail = String(body.error?.message || body.error?.status || body.message || body.code || "")
         .replace(/AIza[\w-]+|sk-[\w-]+/g, "[redacted]")
         .slice(0, 300);
     } catch {}
@@ -103,7 +104,7 @@ async function request(url: string, init: RequestInit, timeout = 65000) {
   return r.json() as Promise<any>;
 }
 function key(provider: ProviderName) {
-  const k = env(provider === "openai" ? "OPENAI_API_KEY" : "GEMINI_API_KEY");
+  const k = env(provider === "openai" ? "OPENAI_API_KEY" : provider === "gemini" ? "GEMINI_API_KEY" : "BAILIAN_API_KEY");
   if (!k)
     throw new ProviderError(
       "尚未配置此 AI 服务的服务器密钥。可继续使用基础风格模式。",
@@ -118,6 +119,53 @@ function splitImage(image: string) {
   if (!match) throw new ProviderError("请上传 PNG、JPG 或 WEBP 图片。", 400);
   return { mime: match[1], data: match[2] };
 }
+// Use only official Bailian inference domains to avoid arbitrary upstream requests.
+function bailianURL(path: string) {
+  const base = new URL(env("BAILIAN_BASE_URL") || "https://dashscope.aliyuncs.com");
+  const hostname = base.hostname;
+  const official = hostname === "dashscope.aliyuncs.com" ||
+    hostname === "dashscope-intl.aliyuncs.com" ||
+    /^[a-z0-9-]+\.(?:cn-beijing|ap-southeast-1|eu-central-1|ap-northeast-1)\.maas\.aliyuncs\.com$/.test(hostname);
+  if (!official || base.protocol !== "https:" || base.username || base.password ||
+      base.search || base.hash || base.pathname !== "/")
+    throw new ProviderError("阿里云百炼接口地址无效，请使用与 API Key 同地域的官方域名。", 503);
+  return base.origin + path;
+}
+function bailianError(data: any) {
+  if (!data?.code) return;
+  const code = String(data.code).slice(0, 80);
+  if (/InvalidApiKey|Unauthorized|AccessDenied|PermissionDenied/i.test(code))
+    throw new ProviderError("百炼鉴权失败，请检查 API Key、业务空间和地域。", 502);
+  if (/Quota|Throttling|RateLimit|Balance/i.test(code))
+    throw new ProviderError("百炼配额不足或触发限流，请检查控制台额度。", 429);
+  throw new ProviderError("百炼返回错误（" + code + "），请检查模型是否在当前地域可用。");
+}
+// Bailian image responses contain expiring signed OSS URLs. Download server-side
+// and return a data URL so projects keep working after the OSS URL expires.
+async function bailianImageResult(data: any): Promise<string> {
+  bailianError(data);
+  const image = data.output?.choices?.[0]?.message?.content?.find((part: any) => part.image)?.image;
+  if (typeof image !== "string") throw new ProviderError("百炼未返回字形图片，请检查模型与提示词。");
+  const url = new URL(image);
+  if (url.protocol !== "https:" || url.username || url.password ||
+      !/^dashscope-result-[a-z0-9-]+\.oss-[a-z0-9-]+\.aliyuncs\.com$/.test(url.hostname))
+    throw new ProviderError("百炼返回了不受支持的图片下载地址。");
+  let response: Response;
+  try {
+    response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(45000) });
+  } catch {
+    throw new ProviderError("百炼图片下载失败或超时，请重试。", 504);
+  }
+  if (!response.ok || Number(response.headers.get("content-length")) > 25000000)
+    throw new ProviderError("百炼图片下载失败或文件过大。");
+  const mime = response.headers.get("content-type")?.split(";")[0] || "";
+  if (!["image/png", "image/jpeg", "image/webp"].includes(mime))
+    throw new ProviderError("百炼返回的图片格式不受支持。");
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength > 25000000) throw new ProviderError("百炼图片过大。");
+  return "data:" + mime + ";base64," + Buffer.from(bytes).toString("base64");
+}
+
 async function imageResult(data: any): Promise<string> {
   const item = data.data?.[0];
   if (item?.b64_json) return `data:image/png;base64,${item.b64_json}`;
@@ -199,6 +247,27 @@ export async function analyzeFont(
         .filter((x: any) => x.type === "output_text")
         .map((x: any) => x.text)
         .join("") || "";
+  } else if (provider === "bailian") {
+    model = requiredModel("BAILIAN_ANALYSIS_MODEL");
+    const content: any[] = [{ type: "text", text: input.prompt || "请分析参考图的字体风格，并识别字符。" }];
+    if (input.image) {
+      splitImage(input.image);
+      content.push({ type: "image_url", image_url: { url: input.image } });
+    }
+    const data = await request(bailianURL("/compatible-mode/v1/chat/completions"), {
+      method: "POST",
+      headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: FONT_ANALYSIS_PROMPT + " Return a raw JSON object, no Markdown." },
+          { role: "user", content },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    });
+    bailianError(data);
+    output = data.choices?.[0]?.message?.content || "";
   } else {
     model = requiredModel("GEMINI_ANALYSIS_MODEL");
     const parts: any[] = [
@@ -332,6 +401,28 @@ async function generateImage(
         240000,
       );
     result = await imageResult(data);
+  } else if (provider === "bailian") {
+    model = requiredModel("BAILIAN_IMAGE_MODEL");
+    // Qwen-Image 3.0 accepts at most three reference images; 2.1 supports ten.
+    const maxImages = model.startsWith("qwen-image-2.1") ? 10 : 3;
+    if (images.length > maxImages)
+      throw new ProviderError("当前百炼图像模型最多支持 " + maxImages +
+        " 张参考图，请减少参考图或切换为 qwen-image-2.1 系列。", 400);
+    const content: any[] = images.map((image) => {
+      splitImage(image);
+      return { image };
+    });
+    content.push({ text: prompt });
+    const data = await request(bailianURL("/api/v1/services/aigc/multimodal-generation/generation"), {
+      method: "POST",
+      headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        input: { messages: [{ role: "user", content }] },
+        parameters: { n: 1, size: size.replace("x", "*"), watermark: false, prompt_extend: false },
+      }),
+    }, 240000);
+    result = await bailianImageResult(data);
   } else {
     model = requiredModel("GEMINI_IMAGE_MODEL");
     const parts: any[] = [{ text: prompt }];
