@@ -79,7 +79,7 @@ try {
   await assert.rejects(()=>generateGlyph("bailian","永",style),/不受支持/);
 
   await assert.rejects(
-    ()=>generateGlyph("bailian","永",style,png,0,"",png,[],png),
+    ()=>generateGlyph("bailian","永",style,png,0,"",png,[],png,[],png),
     /最多支持 3 张参考图/
   );
   process.env.BAILIAN_BASE_URL = "https://example.invalid";
