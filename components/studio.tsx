@@ -98,7 +98,7 @@ export default function Studio() {
     [prompt, P] = useState(""),
     [analysis, A] = useState<Analysis | null>(null);
   const [provider, Q] = useState("openai"),
-    [status, T] = useState({ openai: false, gemini: false });
+    [status, T] = useState({ openai: false, gemini: false, grsai: false });
   const [chars, C] = useState({
     all: "",
     chinese: "",
@@ -1947,15 +1947,15 @@ export default function Studio() {
               <>
                 <div className="eyebrow">AI CONNECTION</div>
                 <h2>AI 服务设置</h2>
-                <p>OpenAI 与 Google 可以同时启用；每次生成选择一个服务。密钥只保存在服务器。</p>
-                {(["openai", "gemini"] as const).map((p) => (
+                <p>OpenAI、Google Gemini、GrsAI 可分别配置并按需切换。每次任务仅调用当前选中的服务；密钥保存在 Render。</p>
+                {(["openai", "gemini", "grsai"] as const).map((p) => (
                   <button
                     key={p}
                     className={"provider " + (provider === p ? "selected" : "")}
                     onClick={() => Q(p)}
                   >
                     <strong>
-                      {p === "openai" ? "OpenAI · GPT Image" : "Google Gemini"}
+                      {p === "openai" ? "OpenAI · GPT Image" : p === "gemini" ? "Google Gemini" : "GrsAI · 自有 API"}
                     </strong>
                     <span className={"dot " + (status[p] ? "green" : "")} />
                     {status[p] ? "已配置" : "未配置"}
@@ -1963,13 +1963,13 @@ export default function Studio() {
                 ))}
                 <div className="info-box">
                   OpenAI GPT Image 支持 4K 大图批量测试和单字重绘。Gemini
-                  支持逐字生成和图片分析。两家服务分别计费，密钥由服务器保管。
+                  支持逐字生成和图片分析。GrsAI 使用独立接口，支持逐字生成。各平台分别计费。
                 </div>
                 <details>
                   <summary>开发者配置说明</summary>
                   <p>
-                    在 Render 中同时设置 <code>OPENAI_API_KEY</code> 和{" "}
-                    <code>GEMINI_API_KEY</code>{" "}
+                    在 Render 中设置 <code>OPENAI_API_KEY</code>、{" "}
+                    <code>GEMINI_API_KEY</code>、<code>GRSAI_API_KEY</code>{" "}
                     并分别设置 ANALYSIS_MODEL、IMAGE_MODEL，再重新部署。OpenAI 官方接口
                     使用 <code>OPENAI_BASE_URL=https://api.openai.com/v1</code>。建议设置 <code>STUDIO_PASSWORD</code>，避免公开网站产生意外调用费用。
                   </p>
