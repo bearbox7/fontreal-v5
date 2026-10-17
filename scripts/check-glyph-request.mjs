@@ -46,6 +46,14 @@ await assert.rejects(
   /HTTP 502/,
 );
 await assert.rejects(
+  () => requestGlyph({}, async () =>
+    new Response("<!DOCTYPE html><title>Render sleeping</title>",{
+      status:200, headers:{"Content-Type":"text/html"}
+    }),
+  ),
+  /单字服务未返回有效数据（HTTP 200）/,
+);
+await assert.rejects(
   () => requestGlyph({}, async () => Response.json({})),
   /没有返回有效图片/,
 );
