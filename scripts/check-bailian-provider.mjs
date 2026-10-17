@@ -64,6 +64,8 @@ try {
     assert.equal(init.headers.Authorization,"Bearer mock-secret");
     const payload=JSON.parse(init.body);
     assert.equal(payload.model,"qwen3-vl-plus");
+    assert.match(payload.messages[0].content, /"description"/);
+    assert.match(payload.messages[0].content, /"characters"/);
     assert.equal(payload.response_format.type,"json_object");
     assert.equal(payload.enable_thinking,false);
     assert.equal(payload.messages[1].content.filter(x=>x.type==="image_url").length,1);
