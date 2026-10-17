@@ -12,6 +12,7 @@ const { guard } = await import("data:text/javascript;base64," + Buffer.from(js).
 
 const renderURL = "https://fontreal-v5.onrender.com/api/glyph-sheet";
 const publicURL = "https://fontreal.pages.dev/api/glyph-sheet";
+const internalURL = "http://localhost:10000/api/glyph";
 function req(url, origin, headers = {}) {
   return new Request(url, {
     method: "POST",
@@ -22,6 +23,10 @@ assert.equal(guard(req(renderURL, "https://fontreal.pages.dev")), undefined,
   "Cloudflare Pages public origin forwarded to Render should be accepted");
 assert.equal(guard(req(renderURL, "https://fontreal-v5.onrender.com")), undefined,
   "Render same-origin calls should still work");
+assert.equal(guard(req(internalURL, "https://fontreal-v5.onrender.com")), undefined,
+  "Cloudflare rewrites Origin to Render's HTTPS hostname while Next.js may see localhost");
+assert.equal(guard(req(internalURL, "https://fontreal.pages.dev")), undefined,
+  "Public Pages origin should remain accepted even if Worker stops rewriting");
 assert.equal(guard(req(publicURL, "https://fontreal.pages.dev")), undefined,
   "Cloudflare unrewritten public URL should work");
 assert.equal(guard(req(renderURL, undefined)), undefined,
@@ -31,9 +36,11 @@ for (const hostileOrigin of [
   "https://fontreal.pages.dev.attacker.example",
   "http://fontreal.pages.dev",
   "https://another.pages.dev",
+  "https://fontreal-v5.onrender.com.evil.example",
+  "http://fontreal-v5.onrender.com",
   "null",
 ]) {
-  const result = guard(req(renderURL, hostileOrigin, {
+  const result = guard(req(internalURL, hostileOrigin, {
     "x-forwarded-host": "fontreal.pages.dev",
     "x-forwarded-proto": "https",
   }));
@@ -43,4 +50,4 @@ const tooLarge = guard(req(renderURL, "https://fontreal.pages.dev", {
   "content-length": "150",
 }), 100);
 assert.equal(tooLarge?.status, 413, "existing upload size guard must remain active");
-console.log("Origin guard passed: Cloudflare->Render permitted; same-origin permitted; untrusted/spoofed origins denied; size guard retained.");
+console.log("Origin guard passed: Cloudflare Worker origin rewrite to Render, internal localhost URL, same-origin, spoof rejection and size limit.");
