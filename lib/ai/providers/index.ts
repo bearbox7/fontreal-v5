@@ -3,7 +3,7 @@ import type { Analysis, StyleConfig } from "@/lib/font/types";
 import { FONT_ANALYSIS_PROMPT, STYLE_SCHEMA } from "@/prompts/font-analysis";
 import { glyphReferenceInstructions, type GlyphReference } from "@/lib/font/glyph-mentions";
 import { feedbackInstructions, type GlyphFeedback } from "@/lib/font/glyph-feedback";
-import { glyphPrompt } from "@/prompts/glyph-generation";
+import { glyphPrompt, bailianReferencePrompt } from "@/prompts/glyph-generation";
 export type ProviderName = "openai" | "gemini" | "bailian";
 export class ProviderError extends Error {
   constructor(
@@ -344,6 +344,7 @@ export async function generateGlyph(
 ) {
   return generateImage(
     provider,
+    (provider === "bailian" ? bailianReferencePrompt(character, style, !!image, !!characterReference) + "\n" : "") +
     glyphPrompt(character, style, variation, instructions, characterReference ? (image ? "Image 1 is the overall lettering style reference. Image 2 is the correct target glyph structure reference; use it to fix missing or incorrect strokes while matching image 1 style." : "The attached image is the correct target glyph reference. Preserve its complete structure and follow the font style settings.") : "") + glyphReferenceInstructions(glyphReferences, 1 + Number(!!image) + Number(!!characterReference)) + feedbackInstructions(comments) + (annotationImage && !comments.length ? "\nThe LAST image is the current manually edited target glyph. Continue refining that outline; preserve its manual changes unless explicitly requested otherwise." : ""),
     style,
     [image, characterReference, glyphReferenceImage, annotationImage].filter((value): value is string => !!value),
