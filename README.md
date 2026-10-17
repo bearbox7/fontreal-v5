@@ -1,3 +1,7 @@
+[![部署 FontReal V5 到 Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/bearbox7/fontreal-v5)
+
+> 首次部署需登录你的 Render 账户，确认免费方案并设置 `STUDIO_PASSWORD`。请勿在 GitHub 仓库写入密码、AI API 密钥或收费服务凭证。
+
 > **FontReal 公网部署入口：** 先阅读 [FONTREAL-上线指南.md](FONTREAL-上线指南.md)。
 
 # 字境 FontLab × 字坊 Studio · V5 融合版
