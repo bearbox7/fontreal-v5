@@ -22,7 +22,7 @@ function requiredModel(name: string) {
   return value;
 }
 function openaiURL(path: string) {
-  const base = new URL(env("OPENAI_BASE_URL") || "https://api.302.ai/v1");
+  const base = new URL(env("OPENAI_BASE_URL") || "https://api.openai.com/v1");
   if (
     base.protocol !== "https:" ||
     base.username ||
@@ -34,7 +34,10 @@ function openaiURL(path: string) {
   return base.toString().replace(/\/$/, "") + path;
 }
 export function providerStatus() {
-  return { openai: !!env("OPENAI_API_KEY"), gemini: !!env("GEMINI_API_KEY") };
+  return {
+    openai: !!(env("OPENAI_API_KEY") && env("OPENAI_ANALYSIS_MODEL") && env("OPENAI_IMAGE_MODEL")),
+    gemini: !!(env("GEMINI_API_KEY") && env("GEMINI_ANALYSIS_MODEL") && env("GEMINI_IMAGE_MODEL")),
+  };
 }
 const resultSchema = z.object({
   description: z.string().max(1200),
