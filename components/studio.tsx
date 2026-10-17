@@ -66,6 +66,7 @@ import {
   type GlyphSheet,
 } from "@/lib/font/sheet";
 import { generateTestGlyphs } from "@/lib/font/ai-test";
+import { readApiJson } from "@/lib/font/api-response";
 import { singleGenerationPlan } from "@/lib/font/single-generation";
 import { clipboardImage } from "@/lib/font/clipboard";
 import { saveProject, listProjects } from "@/lib/font/storage";
@@ -564,8 +565,8 @@ export default function Studio() {
           ...(mode === "image" ? { image: reference } : { prompt }),
         }),
       });
-      const d: any = await res.json();
-      if (!res.ok) throw Error(d.error);
+      const d = await readApiJson<{error?: string; analysis: Analysis}>(res, "风格分析");
+      if (!res.ok) throw Error(d.error || "风格分析失败，请检查 AI 服务配置。");
       A(d.analysis);
       S(d.analysis.style);
       B("风格分析完成，参数已应用");
