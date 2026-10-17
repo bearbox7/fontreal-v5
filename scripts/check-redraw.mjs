@@ -10,6 +10,7 @@ for (const name of ['font-analysis','glyph-generation']) {
 }
 src = src.replace("@/lib/font/glyph-feedback", moduleURL(await fs.readFile(new URL("../lib/font/glyph-feedback.ts", import.meta.url),"utf8")));
 src = src.replace("@/lib/font/glyph-mentions", moduleURL(await fs.readFile(new URL("../lib/font/glyph-mentions.ts", import.meta.url),"utf8")));
+src = src.replace("@/lib/ai/grsai", moduleURL(`export class GrsaiError extends Error { constructor(message,status=502){super(message);this.status=status;} } export async function grsaiAnalyze(){throw Error("mock GrsAI not used");} export async function grsaiGenerate(){throw Error("mock GrsAI not used");}`));
 const tmp = new URL('../work/redraw-provider-check.mjs',import.meta.url);
 await fs.writeFile(tmp, compile(src));
 const originalFetch = globalThis.fetch;
