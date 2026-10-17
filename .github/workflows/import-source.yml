@@ -1,0 +1,68 @@
+name: Import FontReal V5 source ZIP
+on:
+  push:
+    branches: [main]
+    paths: [fontreal-v5-source.zip]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Validate and unpack source archive
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib, shutil, stat, zipfile
+          name = pathlib.Path("fontreal-v5-source.zip")
+          if not name.is_file():
+              raise SystemExit("Missing fontreal-v5-source.zip: upload the V5 deployment archive to repository root.")
+          with zipfile.ZipFile(name) as z:
+              members = z.infolist()
+              if len(members) > 1000:
+                  raise SystemExit("Archive contains too many files.")
+              required = {"package.json", "package-lock.json", "app/page.tsx", "server_tools/requirements.txt"}
+              found = {i.filename for i in members if not i.is_dir()}
+              if not required.issubset(found):
+                  raise SystemExit("Unexpected archive layout: use FontReal-V5-完整版服务端-部署源码.zip without adding a parent folder.")
+              for item in members:
+                  normalized = pathlib.PurePosixPath(item.filename)
+                  if normalized.is_absolute() or ".." in normalized.parts or "\\" in item.filename:
+                      raise SystemExit(f"Unsafe archive path: {item.filename!r}")
+                  if (item.external_attr >> 16) & 0o170000 == stat.S_IFLNK:
+                      raise SystemExit(f"Archive symlink not supported: {item.filename!r}")
+                  if item.file_size > 20 * 1024 * 1024:
+                      raise SystemExit(f"File too large: {item.filename!r}")
+                  target = pathlib.Path(*normalized.parts)
+                  if item.is_dir():
+                      target.mkdir(parents=True, exist_ok=True)
+                      continue
+                  if target.parts[0] == ".git" or (len(target.parts) >= 2 and target.parts[0] == ".github" and target.parts[1] == "workflows"):
+                      continue
+                  if target.name.startswith(".env") and target.name != ".env.example":
+                      raise SystemExit(f"Refusing to commit secret environment file: {item.filename!r}")
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  with z.open(item) as src, target.open("wb") as dst:
+                      shutil.copyfileobj(src, dst)
+          print(f"Imported {len(members)} archive entries.")
+          PY
+      - name: Commit extracted project files and remove archive
+        shell: bash
+        run: |
+          rm -f fontreal-v5-source.zip
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source updates."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Import complete FontReal V5 application source"
+          git push
