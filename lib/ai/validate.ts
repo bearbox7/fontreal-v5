@@ -22,6 +22,10 @@ export function guard(request: Request, maxBytes = 6500000) {
   const allowedOrigins = new Set([
     new URL(request.url).origin,
     "https://fontreal.pages.dev",
+    // Cloudflare Pages bridge rewrites Origin to the backend's public HTTPS
+    // hostname. Next.js on Render may still see a local http://localhost port
+    // in request.url; allow this one exact known backend origin explicitly.
+    "https://fontreal-v5.onrender.com",
   ]);
   if (origin && !allowedOrigins.has(origin))
     return Response.json({ error: "不支持跨站请求。" }, { status: 403 });
