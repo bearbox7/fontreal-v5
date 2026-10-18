@@ -66,6 +66,7 @@ import {
   type GlyphSheet,
 } from "@/lib/font/sheet";
 import { generateTestGlyphs } from "@/lib/font/ai-test";
+import { previewReferenceGrid, type ReferenceGridCell } from "@/lib/font/reference-grid";
 import { readApiJson } from "@/lib/font/api-response";
 import { singleGenerationPlan } from "@/lib/font/single-generation";
 import { clipboardImage } from "@/lib/font/clipboard";
@@ -124,6 +125,9 @@ export default function Studio() {
   const [redrawingChar, setRedrawingChar] = useState("");
   const redrawLock = useRef(false);
   const [generationError, setGenerationError] = useState("");
+  const [referenceGridColumns, setReferenceGridColumns] = useState(10);
+  const [referenceGridRows, setReferenceGridRows] = useState(2);
+  const [referenceGridSamples, setReferenceGridSamples] = useState<ReferenceGridCell[]>([]);
   const [busySeconds, setBusySeconds] = useState(0);
   const busyActive = !!busy;
   useEffect(() => {
@@ -332,6 +336,8 @@ export default function Studio() {
   sheetCurrent.current = sheetSignature;
   const configured = status[provider as keyof typeof status];
   const singlePlan = singleGenerationPlan(testText, edits);
+  const currentTestCharacters = Array.from(testText).filter((c) => !!c.trim());
+  useEffect(() => setReferenceGridSamples([]), [reference, testText, referenceGridColumns, referenceGridRows]);
   useEffect(
     () => setGenerationError(""),
     [reference, testText, provider, batchMode, style],
@@ -544,6 +550,60 @@ export default function Studio() {
       B("图片读取失败，请换一张图片");
     } finally {
       URL.revokeObjectURL(url);
+    }
+  }
+  async function previewExactReference() {
+    if (busy) return;
+    F("正在裁切原样参考字");
+    G(0);
+    try {
+      const cells = await previewReferenceGrid(reference, testText, referenceGridColumns, referenceGridRows);
+      setReferenceGridSamples(cells);
+      B(`已分离 ${cells.length} 个参考字。请检查每个字形和下方标签是否对应，确认后再导入。此操作没有调用付费 AI。`);
+    } catch (error) {
+      setReferenceGridSamples([]);
+      B((error as Error).message);
+    } finally {
+      F("");
+    }
+  }
+
+  async function importExactReference() {
+    if (busy || !referenceGridSamples.length) return;
+    const overwritten = referenceGridSamples.filter((cell) => !!edits[cell.character]?.path).length;
+    if (overwritten && !window.confirm(
+      `参考图原样导入会覆盖 ${overwritten} 个现有字形。建议先导出项目 JSON 备份。是否继续？`,
+    )) return;
+    const projectId = latestProject.current.id;
+    const next: GlyphEdits = { ...edits };
+    F("正在原样描摹参考图");
+    G(0);
+    try {
+      for (const [index, cell] of referenceGridSamples.entries()) {
+        if (latestProject.current.id !== projectId)
+          throw Error("项目已切换，停止导入，防止写入错误字库。");
+        const traced = await vectorizeDetailed(cell.image);
+        next[cell.character] = {
+          scale: 100, rotate: 0, x: 0, y: 0,
+          version: (edits[cell.character]?.version || 0) + 1,
+          path: traced.path,
+          traceStats: { nodes: traced.nodes, fidelity: traced.fidelity, tolerance: traced.tolerance },
+          sourceImage: cell.image,
+          model: "reference-grid-extract",
+          prompt: `从参考网格第 ${cell.index + 1} 格原样裁切并矢量描摹「${cell.character}」，没有调用 AI 重新绘制。`,
+          createdAt: new Date().toISOString(),
+          generatedStyle: style,
+        };
+        G(Math.round(((index + 1) / referenceGridSamples.length) * 100));
+      }
+      await persist({ ...latestProject.current, edits: next, updatedAt: Date.now() });
+      E(next);
+      setReferenceGridSamples([]);
+      B(`已原样提取 ${Object.keys(next).length} 个字形（本次 ${currentTestCharacters.length} 格）。请在预览中检查并点击「用当前字形打包测试字体」。`);
+    } catch (error) {
+      B("参考字形导入未完成：" + (error as Error).message);
+    } finally {
+      F("");
     }
   }
   async function analyze() {
@@ -1080,7 +1140,7 @@ export default function Studio() {
                     <div className="canvas-top">
                       <span>
                         <span className="dot green" />
-                        实时字形预览
+                        {reference && singlePlan.remaining.length ? `临时混合预览 · ${singlePlan.completed.length}/${singlePlan.characters.length} 字已定制` : "实时字形预览"}
                       </span>
                       <span>
                         中文创作 · {style.base === "sans" ? "黑体" : "宋体"}
@@ -1114,6 +1174,9 @@ export default function Studio() {
                         </div>
                       ))}
                     </div>
+                    {reference && singlePlan.remaining.length > 0 && (
+                      <div className="canvas-placeholder-note" role="status">尚有 {singlePlan.remaining.length} 字未生成，当前预览会使用基础字体占位；不能作为最终 AI 字形效果。</div>
+                    )}
                     <div className="canvas-bottom">
                       <span>YOUR WORDS. YOUR WORLD.</span>
                       <button onClick={() => V("preview")}>
@@ -1315,6 +1378,44 @@ export default function Studio() {
                           }
                         />
                       </label>
+                    </div>
+                  )}
+                  {reference && mode === "image" && (
+                    <div className="reference-grid-tool">
+                      <strong>原样提取参考字 · 不调用 AI</strong>
+                      <p>如果参考图已经包含目标字，请按从左到右、从上到下的顺序输入对应测试文字。每格一个字，可原样裁切并矢量描摹，保留原设计的笔画。</p>
+                      <div className="reference-grid-fields">
+                        <label>列数
+                          <input aria-label="参考图列数" type="number" min={1} max={24}
+                            value={referenceGridColumns} disabled={!!busy}
+                            onChange={(e) => setReferenceGridColumns(Number(e.target.value))} />
+                        </label>
+                        <label>行数
+                          <input aria-label="参考图行数" type="number" min={1} max={24}
+                            value={referenceGridRows} disabled={!!busy}
+                            onChange={(e) => setReferenceGridRows(Number(e.target.value))} />
+                        </label>
+                        <span>{referenceGridColumns} × {referenceGridRows} 格 · 输入文字 {currentTestCharacters.length} 字</span>
+                      </div>
+                      <button className="wide" disabled={!!busy} onClick={previewExactReference}>
+                        <Grid2X2 size={15} /> 预览参考图裁切 · 不扣 AI 额度
+                      </button>
+                      {referenceGridSamples.length > 0 && (
+                        <>
+                          <p className="reference-grid-warning">请逐格核对：切图与下方汉字标签必须一致。若错位，请修改列数、行数或测试文字顺序后重新预览。导入会覆盖同名已生成字形。</p>
+                          <div className="reference-grid-preview">
+                            {referenceGridSamples.map((cell) => (
+                              <div key={cell.index} className="reference-grid-sample">
+                                <img src={cell.image} alt={`参考图第 ${cell.index + 1} 格「${cell.character}」`} />
+                                <span>{cell.index + 1}. {cell.character}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <button className="primary wide" disabled={!!busy} onClick={importExactReference}>
+                            <Check size={15} /> 核对无误 · 原样描摹导入 {referenceGridSamples.length} 字
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                   <div className="control-title">
