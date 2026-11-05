@@ -1,0 +1,106 @@
+name: Deploy existing bearbox8 Cloudflare Pages project
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to deploy this verified Pages proxy bundle
+        required: true
+        type: choice
+        default: preview
+        options: [preview, production]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bearbox8-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy-pages:
+    # Production is disabled until BEARBOX8_AUTO_DEPLOY is explicitly set to 'true'.
+    if: github.event_name == 'workflow_dispatch' || vars.BEARBOX8_AUTO_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      AUTO_DEPLOY: ${{ vars.BEARBOX8_AUTO_DEPLOY }}
+      TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'production' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Require credentials and explicit production opt-in
+        shell: bash
+        run: |
+          test -n "$CLOUDFLARE_ACCOUNT_ID" && test -n "$CLOUDFLARE_API_TOKEN" || { echo "Set Cloudflare account ID and API token in Actions secrets."; exit 1; }
+          if [[ "$TARGET" == production && "$AUTO_DEPLOY" != true ]]; then
+            echo "Production blocked: set GitHub Actions variable BEARBOX8_AUTO_DEPLOY=true only after preview testing."
+            exit 1
+          fi
+      - name: Test Next.js/Python source before updating Pages
+        run: |
+          npm ci --no-audit --no-fund
+          npm run check
+          npm run build
+      - name: Prepare original Pages assets without replacing the frontend with .next output
+        shell: bash
+        run: |
+          test -f pages/bearbox8/legacy.zip || { echo "Missing pages/bearbox8/legacy.zip: add the original Cloudflare Pages access ZIP first."; exit 1; }
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import stat, zipfile
+          archive = Path("pages/bearbox8/legacy.zip")
+          out = Path(".pages-deploy")
+          out.mkdir(exist_ok=True)
+          with zipfile.ZipFile(archive) as z:
+              members = z.infolist()
+              if len(members) > 1000: raise SystemExit("Too many bundle files")
+              if sum(i.file_size for i in members) > 30 * 1024 * 1024: raise SystemExit("Bundle too large")
+              for member in members:
+                  path = PurePosixPath(member.filename)
+                  if path.is_absolute() or ".." in path.parts or "\\" in member.filename:
+                      raise SystemExit("Unsafe bundle path")
+                  if (member.external_attr >> 16) & 0o170000 == stat.S_IFLNK:
+                      raise SystemExit("Symlinks not supported")
+              z.extractall(out)
+          for required in ("index.html", "_worker.js", "fonts/sans-400.ttf"):
+              if not (out / required).is_file(): raise SystemExit(f"Missing bundle asset: {required}")
+          PY
+          cp pages/bearbox8/_worker.js .pages-deploy/_worker.js
+      - name: Verify Cloudflare target already exists; detect its actual production branch
+        shell: bash
+        run: |
+          curl -fsS --retry 2 --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/bearbox8" \
+            -o /tmp/bearbox8-project.json
+          python3 - <<'PY'
+          import json, os
+          data = json.load(open("/tmp/bearbox8-project.json", encoding="utf-8"))
+          project = data.get("result") or {}
+          if not data.get("success") or project.get("name") != "bearbox8":
+              raise SystemExit("Cloudflare project mismatch; refusing to create another project")
+          branch = project.get("production_branch")
+          if not branch or "\n" in branch: raise SystemExit("Cannot identify existing Pages production branch")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
+              f.write(f"PAGES_PRODUCTION_BRANCH={branch}\n")
+          print("Existing Pages project verified: bearbox8")
+          PY
+      - name: Deploy the preview or the existing production branch
+        shell: bash
+        run: |
+          if [[ "$TARGET" == production ]]; then
+            BRANCH="$PAGES_PRODUCTION_BRANCH"
+          else
+            BRANCH="bearbox8-ci-preview"
+            if [[ "$BRANCH" == "$PAGES_PRODUCTION_BRANCH" ]]; then echo "Preview branch conflicts with production"; exit 1; fi
+          fi
+          npx --yes wrangler@4.92.0 pages deploy .pages-deploy \
+            --project-name=bearbox8 --branch="$BRANCH" --commit-hash="$GITHUB_SHA"
+          echo "Pages deployment submitted to existing bearbox8 project ($TARGET)."
