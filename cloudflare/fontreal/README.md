@@ -8,7 +8,7 @@ Keep the working Next.js + Python application on Render (or another Docker host)
 
 ## One-time setup
 
-1. Take the previously generated `FontReal-Cloudflare-完整版接入包.zip` (the Pages access bundle, **not** the Next.js server source ZIP). Commit an **unchanged copy** to this repository at `cloudflare/fontreal/legacy.zip`. It contains `index.html`, fonts and `_worker.js`; the workflow substitutes the reviewed `cloudflare/fontreal/_worker.js`.
+1. **Completed:** The original Pages access bundle has been verified byte-for-byte against the uploaded `legacy.zip` and committed at `cloudflare/fontreal/legacy.zip`. Do not reupload it. The workflow substitutes the reviewed `cloudflare/fontreal/_worker.js` for the legacy worker while preserving the original `index.html` and font assets.
 2. In the Cloudflare dashboard, open **Workers & Pages → fontreal → Settings → Variables and Secrets**. For the production environment, set `FONTREAL_BACKEND_ORIGIN` to your **actual** working Render HTTPS root URL (no path, trailing slash or Pages domain). Configure the preview environment too if you want to test the proxy with Render before production.
 3. At Cloudflare **My Profile → API Tokens**, create a token restricted to your own account with **Account → Cloudflare Pages → Edit** permissions.
 4. In GitHub **bearbox7/fontreal-v5 → Settings → Secrets and variables → Actions**, create two repository **secrets** named `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Never commit actual values, passwords or AI API keys.
