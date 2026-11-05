@@ -12,7 +12,7 @@ Keep the working Next.js + Python application on Render (or another Docker host)
 2. In the Cloudflare dashboard, open **Workers & Pages → bearbox8 → Settings → Variables and Secrets**. For the production environment, set `FONTREAL_BACKEND_ORIGIN` to your **actual** working Render HTTPS root URL (no path, trailing slash or Pages domain). Configure the preview environment too if you want to test the proxy with Render before production.
 3. At Cloudflare **My Profile → API Tokens**, create a token restricted to your own account with **Account → Cloudflare Pages → Edit** permissions.
 4. In GitHub **bearbox7/fontreal-v5 → Settings → Secrets and variables → Actions**, create two repository **secrets** named `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Never commit actual values, passwords or AI API keys.
-5. In GitHub **Actions**, choose **Deploy existing bearbox8 Cloudflare Pages project** → **Run workflow** → `preview`. The preview uses a dedicated non-production branch `bearbox8-ci-preview`. Verify the reported preview URL, `/__fontreal_mode`, and your glyph upload / AI calls.
+5. After reviewing and merging this PR into **main** (production is still protected while the variable is unset), open GitHub **Actions** and choose **Deploy existing bearbox8 Cloudflare Pages project** → **Run workflow** → `preview`. The preview uses a dedicated non-production branch `bearbox8-ci-preview`. Verify the reported preview URL, `/__fontreal_mode`, and your glyph upload / AI calls.
 6. After preview passes, add repository **variable** `BEARBOX8_AUTO_DEPLOY=true`. At this point pushes to `main` start automated production publishing; you can also manually trigger `production`. Leave it unset or `false` until you are ready.
 
 ## Safety
