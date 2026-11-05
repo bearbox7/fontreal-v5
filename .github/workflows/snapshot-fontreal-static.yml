@@ -1,0 +1,62 @@
+name: Capture existing FontReal static editor for safe Pages deployment
+
+on:
+  push:
+    branches: [chore/fontreal-pages-ci]
+    paths: [.github/workflows/snapshot-fontreal-static.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    if: github.repository == 'bearbox7/fontreal-v5' && github.ref == 'refs/heads/chore/fontreal-pages-ci'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Read and validate existing public static editor (do not deploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p cloudflare/fontreal/static
+          if test -f cloudflare/fontreal/static/index.html; then
+            echo "Static snapshot already committed; refusing to overwrite it."
+            exit 0
+          fi
+          curl --fail --show-error --silent --location --retry 3 --max-time 45 \
+            --header 'Accept: text/html' \
+            'https://fontreal.pages.dev/' -o /tmp/fontreal-current.html
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("/tmp/fontreal-current.html")
+          data = p.read_bytes()
+          text = data.decode("utf-8")
+          expected_title = "<title>FontReal · 中文在线字体设计工作室</title>"
+          if not (100_000 <= len(data) <= 2_000_000):
+              raise SystemExit(f"Unexpected live HTML size ({len(data)} bytes); keeping production unchanged.")
+          if expected_title not in text or not re.search(r"<!doctype\s+html", text[:200], re.I):
+              raise SystemExit("The live page does not match the expected original static FontReal editor.")
+          if '/fonts/sans-400.ttf' not in text or '/fonts/serif-400.ttf' not in text:
+              raise SystemExit("Expected local fonts missing from live editor; refusing to snapshot.")
+          if '/_next/static/' in text:
+              raise SystemExit("Live site appears to be server-rendered Next.js, not the original static editor.")
+          Path("cloudflare/fontreal/static/index.html").write_bytes(data)
+          print(f"Validated and copied live static editor ({len(data)} bytes).")
+          PY
+      - name: Commit validated legacy fallback to draft branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add cloudflare/fontreal/static/index.html
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Snapshot validated legacy FontReal static editor for safe Pages fallback"
+          git push origin HEAD:chore/fontreal-pages-ci
