@@ -52,11 +52,11 @@ jobs:
       - name: Prepare original Pages assets without replacing the frontend with .next output
         shell: bash
         run: |
-          test -f pages/bearbox8/legacy.zip || { echo "Missing pages/bearbox8/legacy.zip: add the original Cloudflare Pages access ZIP first."; exit 1; }
+          test -f cloudflare/bearbox8/legacy.zip || { echo "Missing cloudflare/bearbox8/legacy.zip: add the original Cloudflare Pages access ZIP first."; exit 1; }
           python3 - <<'PY'
           from pathlib import Path, PurePosixPath
           import stat, zipfile
-          archive = Path("pages/bearbox8/legacy.zip")
+          archive = Path("cloudflare/bearbox8/legacy.zip")
           out = Path(".pages-deploy")
           out.mkdir(exist_ok=True)
           with zipfile.ZipFile(archive) as z:
@@ -73,7 +73,7 @@ jobs:
           for required in ("index.html", "_worker.js", "fonts/sans-400.ttf"):
               if not (out / required).is_file(): raise SystemExit(f"Missing bundle asset: {required}")
           PY
-          cp pages/bearbox8/_worker.js .pages-deploy/_worker.js
+          cp cloudflare/bearbox8/_worker.js .pages-deploy/_worker.js
       - name: Verify Cloudflare target already exists; detect its actual production branch
         shell: bash
         run: |
