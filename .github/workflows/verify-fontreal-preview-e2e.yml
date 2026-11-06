@@ -1,0 +1,31 @@
+name: FontReal Preview real-browser E2E (no production changes)
+on:
+  push:
+    branches: [chore/fontreal-preview-e2e-20261106]
+    paths:
+      - .github/workflows/verify-fontreal-preview-e2e.yml
+      - tests/preview_browser_e2e.py
+permissions:
+  contents: read
+jobs:
+  preview-browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated browser and font validators
+        run: |
+          python -m pip install --disable-pip-version-check playwright fonttools
+          python -m playwright install --with-deps chromium
+      - name: Test live fontreal Preview website (never Production)
+        run: python tests/preview_browser_e2e.py
+      - name: Upload failure screenshot (if captured)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fontreal-preview-browser-diagnostic
+          path: /tmp/fontreal-preview-e2e.png
+          if-no-files-found: ignore
