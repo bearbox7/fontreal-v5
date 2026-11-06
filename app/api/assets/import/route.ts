@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { isAllowedStudioOrigin } from "@/lib/ai/validate";
 export const runtime = "nodejs";
 export const maxDuration = 45;
 const MAX = 15 * 1024 * 1024;
 const extensions = new Set([".png", ".jpg", ".jpeg", ".svg", ".ai", ".eps", ".ttf", ".otf"]);
 const recentRequests = new Map<string, number[]>();
 export async function POST(request: NextRequest) {
-  const origin=request.headers.get("origin");
-  if(origin && origin !== request.nextUrl.origin) return NextResponse.json({error:"不允许跨站上传"},{status:403});
+  if (!isAllowedStudioOrigin(request)) return NextResponse.json({error:"不允许跨站上传"},{status:403});
   const client=request.headers.get("x-forwarded-for")?.split(",")[0] || "local";
   const now=Date.now();
   const list=(recentRequests.get(client)||[]).filter(t=>now-t<60_000);
