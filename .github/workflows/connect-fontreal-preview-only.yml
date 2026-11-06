@@ -1,0 +1,151 @@
+name: Configure FontReal Preview ONLY and redeploy it
+on:
+  push:
+    branches: [chore/connect-fontreal-preview-20261106]
+    paths: [.github/workflows/connect-fontreal-preview-only.yml]
+permissions:
+  contents: read
+concurrency:
+  group: fontreal-preview-connect
+  cancel-in-progress: false
+jobs:
+  configure-preview-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify existing Render backend health first
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 2 --retry-all-errors \
+            --retry-delay 5 --max-time 120 \
+            "https://fontreal-v5.onrender.com/api/health" -o /tmp/fontreal-health.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open("/tmp/fontreal-health.json",encoding="utf8"))
+          if d.get("ok") is not True or d.get("app")!="FontReal V5":
+              raise SystemExit("Render health is not valid FontReal V5; stopping without changes.")
+          print("Verified FontReal V5 Render backend.")
+          PY
+      - name: Change ONLY Pages preview environment variable, verify production unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          account=os.environ["CLOUDFLARE_ACCOUNT_ID"]
+          token=os.environ["CLOUDFLARE_API_TOKEN"]
+          if not (account and token): raise SystemExit("Required Cloudflare credentials absent.")
+          url=f"https://api.cloudflare.com/client/v4/accounts/{account}/pages/projects/fontreal"
+          def request(method, data=None):
+              headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"}
+              req=urllib.request.Request(url,method=method,headers=headers,
+                  data=json.dumps(data).encode() if data is not None else None)
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as response:
+                      body=json.load(response)
+              except urllib.error.HTTPError as e:
+                  raise SystemExit(f"Cloudflare {method} failed (HTTP {e.code})")
+              if body.get("success") is not True:
+                  raise SystemExit(f"Cloudflare {method} returned unsuccessful status")
+              return body["result"]
+          orig=request("GET")
+          if orig.get("name")!="fontreal" or orig.get("production_branch")!="main":
+              raise SystemExit("Pages project/branch mismatch; refusing changes")
+          configs=orig.get("deployment_configs") or {}
+          prod_before=json.dumps(configs.get("production"),sort_keys=True)
+          canon_before=(orig.get("canonical_deployment") or {}).get("id")
+          prod_var=((configs.get("production") or {}).get("env_vars") or {}).get("FONTREAL_BACKEND_ORIGIN")
+          if not isinstance(prod_var,dict) or prod_var.get("value")!="https://fontreal-v5.onrender.com":
+              raise SystemExit("Production backend configuration differs from expected; refusing changes")
+          preview=(configs.get("preview") or {})
+          old_vars=preview.get("env_vars") or {}
+          for name,v in old_vars.items():
+              if name!="FONTREAL_BACKEND_ORIGIN" and isinstance(v,dict) and v.get("type")=="secret_text":
+                  raise SystemExit("Preview has another encrypted variable; refusing to risk altering it")
+          vars_new={**old_vars,"FONTREAL_BACKEND_ORIGIN":{
+              "type":"plain_text","value":"https://fontreal-v5.onrender.com"}}
+          if vars_new!=old_vars:
+              request("PATCH",{"deployment_configs":{"preview":{"env_vars":vars_new}}})
+              print("Cloudflare Preview backend address configured.")
+          else:
+              print("Cloudflare Preview backend address already correct.")
+          after=request("GET")
+          if after.get("name")!="fontreal" or after.get("production_branch")!="main":
+              raise SystemExit("Unexpected project settings changed")
+          if json.dumps((after.get("deployment_configs") or {}).get("production"),sort_keys=True)!=prod_before:
+              raise SystemExit("Production configuration changed unexpectedly; investigate!")
+          if (after.get("canonical_deployment") or {}).get("id")!=canon_before:
+              raise SystemExit("Production deployment unexpectedly changed; investigate!")
+          found=(((after.get("deployment_configs") or {}).get("preview") or {}).get("env_vars") or {}).get("FONTREAL_BACKEND_ORIGIN")
+          if not isinstance(found,dict) or found.get("value")!="https://fontreal-v5.onrender.com":
+              raise SystemExit("Preview variable was not persisted")
+          print("Cloudflare Preview binding VERIFIED.")
+          print("Cloudflare Production configuration and deployment UNCHANGED.")
+          PY
+      - name: Prepare original FontReal Pages assets (do not build Next.js into Pages)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import stat, zipfile
+          archive=Path("cloudflare/fontreal/legacy.zip")
+          out=Path(".pages-preview")
+          if not archive.is_file(): raise SystemExit("Missing preserved legacy Pages bundle")
+          out.mkdir()
+          with zipfile.ZipFile(archive) as z:
+              members=z.infolist()
+              if len(members)>1000 or sum(x.file_size for x in members)>30*1024*1024:
+                  raise SystemExit("Unexpected ZIP content")
+              for x in members:
+                  p=PurePosixPath(x.filename)
+                  if p.is_absolute() or ".." in p.parts or "\\" in x.filename or (x.external_attr >> 16)&0o170000==stat.S_IFLNK:
+                      raise SystemExit("Unsafe ZIP entry")
+              z.extractall(out)
+          for name in ("index.html","_worker.js","fonts/sans-400.ttf"):
+              if not (out/name).is_file(): raise SystemExit("ZIP missing expected Pages resource")
+          PY
+          cp cloudflare/fontreal/_worker.js .pages-preview/_worker.js
+      - name: Deploy to existing fontreal PREVIEW branch ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.92.0 pages deploy .pages-preview \
+            --project-name=fontreal --branch=fontreal-ci-preview --commit-hash="$GITHUB_SHA"
+          echo "Only fontreal-ci-preview branch deployed; no production deploy performed."
+      - name: Try verification through public preview alias (Access may require sign-in)
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl -sSL --retry 2 --retry-delay 3 --max-time 45 \
+            -o /tmp/fontreal-mode.json -w '%{http_code}' \
+            "https://fontreal-ci-preview.fontreal.pages.dev/__fontreal_mode") || status="unreachable"
+          echo "Preview /__fontreal_mode HTTP status: $status"
+          if [[ "$status" == 200 ]]; then
+            python3 - <<'PY'
+          import json
+          d=json.load(open("/tmp/fontreal-mode.json",encoding="utf8"))
+          if d.get("mode")!="full-v5-proxy" or d.get("backendConfigured") is not True:
+              raise SystemExit("Preview isn't using the full V5 proxy yet")
+          print("Preview proxy mode: VERIFIED")
+          PY
+            health=$(curl -sSL --max-time 45 -o /tmp/fontreal-proxy-health.json -w '%{http_code}' \
+              "https://fontreal-ci-preview.fontreal.pages.dev/api/health") || health="unreachable"
+            echo "Preview /api/health HTTP status: $health"
+            if [[ "$health" == 200 ]]; then
+              python3 - <<'PY'
+          import json
+          d=json.load(open("/tmp/fontreal-proxy-health.json",encoding="utf8"))
+          if d.get("ok") is not True or d.get("app")!="FontReal V5":
+              raise SystemExit("Proxy backend health is not valid")
+          print("Preview-to-Render health: VERIFIED")
+          PY
+            fi
+          else
+            echo "Preview alias is access-protected or not externally reachable from GitHub; verify with user browser."
+          fi
