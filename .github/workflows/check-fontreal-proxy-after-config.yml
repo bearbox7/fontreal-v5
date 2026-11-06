@@ -1,0 +1,50 @@
+name: Diagnose FontReal preview after updating environment (read only)
+on:
+  push:
+    branches: [chore/connect-fontreal-preview-20261106]
+    paths: [.github/workflows/check-fontreal-proxy-after-config.yml]
+permissions:
+  contents: read
+jobs:
+  read-only-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Inspect live preview URLs and current Pages configuration, no mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error, time
+          target_urls=[
+            "https://fontreal-ci-preview.fontreal.pages.dev/__fontreal_mode",
+            "https://72354b6e.fontreal.pages.dev/__fontreal_mode",
+            "https://fontreal-ci-preview.fontreal.pages.dev/api/health"
+          ]
+          for url in target_urls:
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url,headers={"Cache-Control":"no-cache","User-Agent":"FontReal-preview-verification"}),timeout=30) as resp:
+                      data=resp.read(3000).decode("utf8","replace")
+                      print("URL:",url,"HTTP:",resp.status,"response:",data[:500])
+              except urllib.error.HTTPError as e:
+                  print("URL:",url,"HTTP:",e.code)
+              except Exception as e:
+                  print("URL:",url,"error:",type(e).__name__)
+          token=os.environ.get("CF_TOKEN","")
+          acct=os.environ.get("CF_ACCOUNT","")
+          if not token or not acct: raise SystemExit("Cloudflare secrets unavailable")
+          url=f"https://api.cloudflare.com/client/v4/accounts/{acct}/pages/projects/fontreal"
+          req=urllib.request.Request(url,headers={"Authorization":f"Bearer {token}"})
+          with urllib.request.urlopen(req,timeout=30) as resp: d=json.load(resp)
+          p=d.get("result") or {}
+          if p.get("name")!="fontreal": raise SystemExit("Wrong Cloudflare project")
+          configs=p.get("deployment_configs") or {}
+          for name in ("preview","production"):
+              v=((configs.get(name) or {}).get("env_vars") or {}).get("FONTREAL_BACKEND_ORIGIN")
+              print("Cloudflare",name,"binding correct:",isinstance(v,dict) and v.get("value")=="https://fontreal-v5.onrender.com")
+          print("Canonical production deployment ID:",(p.get("canonical_deployment") or {}).get("id"))
+          print("Diagnostic read-only: complete.")
+          PY
