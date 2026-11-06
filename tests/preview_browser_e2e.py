@@ -95,7 +95,7 @@ with sync_playwright() as pw:
         r=context.request.post(
             PREVIEW+"/api/glyph",
             data=json.dumps({"provider":"openai","character":"XX","style":{}}),
-            headers={"Content-Type":"application/json","Origin":PREVIEW},
+            headers={"Content-Type":"application/json"},
             timeout=45000
         )
         assert r.status==400,f"invalid request expected 400, got {r.status} {r.text()[:200]}"
@@ -109,7 +109,6 @@ with sync_playwright() as pw:
         r=context.request.post(
             PREVIEW+"/api/assets/import",
             multipart={"file":{"name":"preview-test.svg","mimeType":"image/svg+xml","buffer":svg},"char":"中"},
-            headers={"Origin":PREVIEW},
             timeout=70000
         )
         assert r.status==200,f"import HTTP {r.status}: {r.text()[:300]}"
@@ -121,14 +120,14 @@ with sync_playwright() as pw:
     def frontend():
         r=page.goto(PREVIEW+"/",wait_until="domcontentloaded",timeout=60000)
         assert r and r.status==200,f"frontend HTTP {r.status if r else 'none'}"
-        page.get_by_role("button",name="字符工坊").wait_for(timeout=45000)
+        page.get_by_role("button",name="字符工坊",exact=True).wait_for(timeout=45000)
         page.locator("nav button").filter(has_text="GB2312 国标字库").wait_for(timeout=45000)
-        page.get_by_role("button",name="在线试字").wait_for(timeout=45000)
+        page.get_by_role("button",name="在线试字",exact=True).wait_for(timeout=45000)
         return "React UI and main sections mounted"
     check("real frontend React hydration",frontend)
 
     def node_edit():
-        page.get_by_role("button",name="字符工坊").click()
+        page.get_by_role("button",name="字符工坊",exact=True).click()
         cards=page.locator("button.glyph-open")
         cards.first.wait_for(timeout=45000)
         c=cards.first.get_attribute("aria-label")
@@ -156,7 +155,7 @@ with sync_playwright() as pw:
 
     def export_type(fmt):
         # Run on actual preview site, no remote state mutation.
-        page.get_by_role("button",name="在线试字").click()
+        page.get_by_role("button",name="在线试字",exact=True).click()
         page.get_by_role("button",name="导出字体").click()
         dialog=page.get_by_role("dialog",name="导出字体")
         dialog.wait_for(timeout=30000)
