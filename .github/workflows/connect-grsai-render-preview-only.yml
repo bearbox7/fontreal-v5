@@ -1,0 +1,173 @@
+name: Point FontReal Pages PREVIEW only to separate GrsAI Render
+on:
+  push:
+    branches: [chore/point-fontreal-preview-to-grsai-render-20261106]
+    paths:
+      - .github/workflows/connect-grsai-render-preview-only.yml
+permissions:
+  contents: read
+concurrency:
+  group: fontreal-grsai-preview-only
+  cancel-in-progress: false
+jobs:
+  preview-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      NEW_PREVIEW_ORIGIN: https://fontreal-v5-preview.onrender.com
+      PRODUCTION_ORIGIN: https://fontreal-v5.onrender.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only preflight of separate GrsAI Render service
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl -sSL --retry 4 --retry-all-errors --retry-delay 7 --max-time 150 \
+            -o /tmp/grsai-preview-health.json -w '%{http_code}' "$NEW_PREVIEW_ORIGIN/api/health") || {
+              echo "Preview Render backend did not respond; refusing all Cloudflare changes"; exit 1; }
+          echo "Separate preview Render health HTTP: $status"
+          if [[ "$status" != 200 ]]; then
+            echo "New Render service is not healthy; refusing all Cloudflare changes"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          obj=json.load(open("/tmp/grsai-preview-health.json",encoding="utf8"))
+          assert obj.get("ok") is True and obj.get("app")=="FontReal V5","Unexpected preview backend app"
+          assert obj.get("glyphEditor") is True,"Preview backend does not report glyph editing"
+          assert "ttf" in obj.get("formats",[]) and "otf" in obj.get("formats",[]),"Font formats missing"
+          print("Separate preview Render backend identified as FontReal V5: VERIFIED")
+          PY
+      - name: Update Cloudflare Pages Preview origin ONLY and verify Production unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          account=os.environ["CLOUDFLARE_ACCOUNT_ID"]
+          token=os.environ["CLOUDFLARE_API_TOKEN"]
+          expected_new=os.environ["NEW_PREVIEW_ORIGIN"]
+          expected_old=os.environ["PRODUCTION_ORIGIN"]
+          if not account or not token: raise SystemExit("Cloudflare credentials missing")
+          url=f"https://api.cloudflare.com/client/v4/accounts/{account}/pages/projects/fontreal"
+          def fetch(method, data=None):
+              req=urllib.request.Request(url,
+                data=(json.dumps(data).encode() if data is not None else None),
+                headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"},
+                method=method)
+              try:
+                  with urllib.request.urlopen(req,timeout=80) as resp:
+                      obj=json.load(resp)
+              except urllib.error.HTTPError as err:
+                  raise SystemExit(f"Cloudflare {method} returned HTTP {err.code}; no tokens printed")
+              if not obj.get("success") or not isinstance(obj.get("result"),dict):
+                  raise SystemExit(f"Cloudflare {method} did not succeed")
+              return obj["result"]
+          before=fetch("GET")
+          if before.get("name")!="fontreal" or before.get("production_branch")!="main":
+              raise SystemExit("Expected existing fontreal Pages project with production branch main; refusing update")
+          original_config=before.get("deployment_configs") or {}
+          production_before=json.dumps(original_config.get("production"),sort_keys=True)
+          prod_deploy_before=(before.get("canonical_deployment") or {}).get("id")
+          prod_vars=(original_config.get("production") or {}).get("env_vars") or {}
+          prod_backend=prod_vars.get("FONTREAL_BACKEND_ORIGIN") or {}
+          if not isinstance(prod_backend,dict) or prod_backend.get("value")!=expected_old:
+              raise SystemExit("Production backend origin differs from expected original: refusing to modify")
+          original_preview=(original_config.get("preview") or {}).get("env_vars") or {}
+          existing=original_preview.get("FONTREAL_BACKEND_ORIGIN") or {}
+          if existing and (not isinstance(existing,dict) or existing.get("value") not in (expected_old,expected_new)):
+              raise SystemExit("Unknown preview backend origin: refusing changes")
+          # An encrypted variable cannot be safely round-tripped as redacted text via this API.
+          if any(isinstance(v,dict) and v.get("type")=="secret_text" for name,v in original_preview.items() if name!="FONTREAL_BACKEND_ORIGIN"):
+              raise SystemExit("Preview has protected variables: abort to avoid losing them")
+          new_preview={**original_preview,
+            "FONTREAL_BACKEND_ORIGIN":{"type":"plain_text","value":expected_new}}
+          if new_preview != original_preview:
+              fetch("PATCH",{"deployment_configs":{"preview":{"env_vars":new_preview}}})
+              print("Cloudflare PREVIEW backend now targets the separate GrsAI Render service.")
+          else:
+              print("Cloudflare PREVIEW backend already targets the separate GrsAI Render service.")
+          after=fetch("GET")
+          if after.get("name")!="fontreal" or after.get("production_branch")!="main":
+              raise SystemExit("Project identity or production branch changed unexpectedly")
+          after_configs=after.get("deployment_configs") or {}
+          if json.dumps(after_configs.get("production"),sort_keys=True) != production_before:
+              raise SystemExit("PRODUCTION CONFIGURATION ALTERED unexpectedly; investigate!")
+          if (after.get("canonical_deployment") or {}).get("id") != prod_deploy_before:
+              raise SystemExit("PRODUCTION DEPLOYMENT ALTERED unexpectedly; investigate!")
+          final_preview=((after_configs.get("preview") or {}).get("env_vars") or {}).get("FONTREAL_BACKEND_ORIGIN") or {}
+          if not isinstance(final_preview,dict) or final_preview.get("value")!=expected_new:
+              raise SystemExit("Preview backend origin was not persisted!")
+          print("PREVIEW origin: VERIFIED.")
+          print("PRODUCTION environment configuration: UNCHANGED.")
+          print("PRODUCTION canonical deployment: UNCHANGED.")
+          PY
+      - name: Package existing Pages worker plus preserved original assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import zipfile,stat
+          archive=Path("cloudflare/fontreal/legacy.zip")
+          out=Path(".pages-grsai-preview-only")
+          if not archive.is_file(): raise SystemExit("Original Pages legacy.zip missing")
+          out.mkdir()
+          with zipfile.ZipFile(archive) as z:
+              members=z.infolist()
+              if len(members)>1000 or sum(m.file_size for m in members)>30*1024*1024:
+                  raise SystemExit("Unexpected Pages ZIP contents")
+              for m in members:
+                  p=PurePosixPath(m.filename)
+                  if p.is_absolute() or ".." in p.parts or "\\" in m.filename or \
+                      (m.external_attr>>16)&0o170000==stat.S_IFLNK:
+                      raise SystemExit("Unsafe Pages ZIP entry")
+              z.extractall(out)
+          for name in ("index.html","_worker.js","fonts/sans-400.ttf"):
+              if not (out/name).is_file(): raise SystemExit(f"Missing ZIP asset {name}")
+          PY
+          cp cloudflare/fontreal/_worker.js .pages-grsai-preview-only/_worker.js
+      - name: Redeploy ONLY fontreal-ci-preview (never main / Production)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.92.0 pages deploy .pages-grsai-preview-only \
+            --project-name=fontreal --branch=fontreal-ci-preview --commit-hash="$GITHUB_SHA"
+          echo "PREVIEW branch deployed; Production branch main untouched."
+      - name: Read-only verification of Pages Preview after deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Preview aliases can lag immediately after deployment: don't misreport a transient old binding.
+          sleep 12
+          response=$(curl -sSL --retry 2 --retry-delay 4 --max-time 80 \
+            -o /tmp/grsai-pages-mode.json -w '%{http_code}' \
+            'https://fontreal-ci-preview.fontreal.pages.dev/__fontreal_mode') || response="unreachable"
+          echo "Cloudflare Preview proxy mode HTTP: $response"
+          if [[ "$response" == 200 ]]; then
+            python3 - <<'PY'
+          import json
+          data=json.load(open("/tmp/grsai-pages-mode.json",encoding="utf8"))
+          if data.get("mode") != "full-v5-proxy" or data.get("backendConfigured") is not True:
+              raise SystemExit("Proxy mode unexpected")
+          print("Cloudflare Preview proxy is enabled.")
+          PY
+          else
+            echo "Preview alias may require access or have a temporary propagation delay; check browser."
+          fi
+          status=$(curl -sSL --retry 3 --retry-delay 5 --max-time 150 \
+            -o /tmp/grsai-preview-health-through-pages.json -w '%{http_code}' \
+            'https://fontreal-ci-preview.fontreal.pages.dev/api/health') || status="unreachable"
+          echo "Cloudflare Preview /api/health HTTP: $status"
+          if [[ "$status" == 200 ]]; then
+            python3 - <<'PY'
+          import json
+          data=json.load(open("/tmp/grsai-preview-health-through-pages.json",encoding="utf8"))
+          if data.get("app") != "FontReal V5" or data.get("ok") is not True:
+              raise SystemExit("Preview Proxy unexpectedly returned wrong backend")
+          print("Cloudflare Preview-to-Render health: VERIFIED.")
+          PY
+          fi
+          echo "No real GrsAI generation requests were sent. No changes to main or bearbox8."
