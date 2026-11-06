@@ -8,6 +8,7 @@ source=source.replace('./glyph-request',new URL('../lib/font/glyph-request.ts',i
 source=source.replace('./glyph-mentions',url(await fs.readFile(new URL('../lib/font/glyph-mentions.ts',import.meta.url),'utf8')));
 source=source.replace('from "./glyph-feedback"','from '+JSON.stringify(url((await fs.readFile(new URL('../lib/font/glyph-feedback.ts',import.meta.url),'utf8')).replace('from "zod"',`from "${import.meta.resolve('zod')}"`))));
 source=source.replace('./engine',url('export async function vectorizeDetailed(){return {path:"M0 0L10 0L10 10Z",nodes:3,fidelity:.99,tolerance:1};}'));
+source=source.replace('./glyph-structure-template',url('export async function glyphStructureTemplate(character){return character==="字" ? "data:image/png;base64,c3RydWN0dXJl" : undefined;}'));
 source=source.replace('./glyph-feedback-image',url('export async function feedbackImage(c,s,e,p){if(!e[c].manuallyEdited)throw Error("missing manual outline");return "data:image/png;base64,bWFudWFs";} export async function glyphReferenceImage(chars,s,e){if(chars[0]!=="幸" || !e["幸"].path)throw Error("wrong glyph resolution");return "data:image/png;base64,cmVm";}'));
 const {redrawGlyph}=await import(url(source));
 const originalFetch=globalThis.fetch;
