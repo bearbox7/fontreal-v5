@@ -4,7 +4,7 @@ import { FONT_ANALYSIS_PROMPT, STYLE_SCHEMA } from "@/prompts/font-analysis";
 import { glyphReferenceInstructions, type GlyphReference } from "@/lib/font/glyph-mentions";
 import { feedbackInstructions, type GlyphFeedback } from "@/lib/font/glyph-feedback";
 import { glyphPrompt, bailianReferencePrompt } from "@/prompts/glyph-generation";
-export type ProviderName = "openai" | "gemini" | "bailian";
+export type ProviderName = "grsai" | "openai" | "gemini" | "bailian";
 export class ProviderError extends Error {
   constructor(
     message: string,
@@ -35,6 +35,7 @@ function openaiURL(path: string) {
 }
 export function providerStatus() {
   return {
+    grsai: !!(env("GRSAI_API_KEY") && env("GRSAI_IMAGE_MODEL") && env("GRSAI_ANALYSIS_MODEL")),
     openai: !!(env("OPENAI_API_KEY") && env("OPENAI_ANALYSIS_MODEL") && env("OPENAI_IMAGE_MODEL")),
     gemini: !!(env("GEMINI_API_KEY") && env("GEMINI_ANALYSIS_MODEL") && env("GEMINI_IMAGE_MODEL")),
     bailian: !!(env("BAILIAN_API_KEY") && env("BAILIAN_ANALYSIS_MODEL") && env("BAILIAN_IMAGE_MODEL")),
@@ -104,7 +105,7 @@ async function request(url: string, init: RequestInit, timeout = 65000) {
   return r.json() as Promise<any>;
 }
 function key(provider: ProviderName) {
-  const k = env(provider === "openai" ? "OPENAI_API_KEY" : provider === "gemini" ? "GEMINI_API_KEY" : "BAILIAN_API_KEY");
+  const k = env(provider === "grsai" ? "GRSAI_API_KEY" : provider === "openai" ? "OPENAI_API_KEY" : provider === "gemini" ? "GEMINI_API_KEY" : "BAILIAN_API_KEY");
   if (!k)
     throw new ProviderError(
       "尚未配置此 AI 服务的服务器密钥。可继续使用基础风格模式。",
@@ -216,6 +217,73 @@ async function imageResult(data: any): Promise<string> {
   }
   throw new ProviderError("AI 未返回有效的字形图片。");
 }
+
+// GrsAI's newer image API uses /v1/api/generate (not the legacy /v1/draw path).
+// An explicit host allow-list prevents accidentally sending a secret to an untrusted URL.
+function grsaiURL(path: "/v1/api/generate" | "/v1/chat/completions") {
+  const configured = env("GRSAI_BASE_URL") || "https://grsaiapi.com";
+  let base: URL;
+  try { base = new URL(configured); }
+  catch { throw new ProviderError("GrsAI 服务地址无效。", 503); }
+  if (base.protocol !== "https:" ||
+    !["grsaiapi.com", "grsai.dakka.com.cn"].includes(base.hostname) ||
+    base.username || base.password || base.port || base.pathname !== "/" ||
+    base.search || base.hash || base.origin !== configured.replace(/\/$/, "")) {
+    throw new ProviderError("GrsAI 仅允许使用官方 HTTPS 全球/国内节点的根地址。", 503);
+  }
+  return base.origin + path;
+}
+
+async function grsaiImageResult(data: any): Promise<string> {
+  const payload = data?.data && typeof data.data === "object" ? data.data : data;
+  const code = data?.code ?? payload?.code;
+  const status = String(payload?.status || "");
+  if (code !== undefined && code !== null && code !== 0 && code !== "0") {
+    const message = String(data?.msg || payload?.msg || "").slice(0, 180);
+    if (/quota|balance|credit|额度|余额|积分|429/i.test(message)) {
+      throw new ProviderError("GrsAI 额度不足或触发限流，请检查 GrsAI 控制台积分。", 429);
+    }
+    throw new ProviderError("GrsAI 返回错误，请核对密钥、模型及接口权限（代码 " + String(code).slice(0, 20) + "）。");
+  }
+  if (["failed", "error", "canceled", "cancelled"].includes(status)) {
+    throw new ProviderError("GrsAI 图片生成失败，请查看控制台任务记录并核对模型。");
+  }
+  if (["running", "pending", "queued", "processing"].includes(status)) {
+    throw new ProviderError("GrsAI 返回未完成任务。当前采用同步 json 模式，请检查模型响应或超时设置。", 504);
+  }
+  const item = payload?.results?.[0] || payload?.data?.[0] || {};
+  const inline = item?.content || item?.b64_json || payload?.b64_json;
+  if (typeof inline === "string" && inline.length > 0) {
+    if (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(inline))
+      return inline;
+    if (/^[A-Za-z0-9+/=]+$/.test(inline))
+      return "data:image/png;base64," + inline;
+  }
+  const uri = item?.url;
+  if (typeof uri !== "string")
+    throw new ProviderError("GrsAI 没有返回图片，请检查模型是否支持图片生成。");
+  let url: URL;
+  try { url = new URL(uri); } catch { throw new ProviderError("GrsAI 返回的图片地址无效。"); }
+  // Official documentation shows fileN.aitohumanize.com as its generated-image CDN.
+  // A tight host allow-list avoids server-side request forgery via model responses.
+  if (url.protocol !== "https:" || url.username || url.password || url.port ||
+      !/^file\d+\.aitohumanize\.com$/.test(url.hostname)) {
+    throw new ProviderError("GrsAI 图片域名尚未纳入安全白名单，请提交生成结果的域名供核对（不要发送签名完整链接）。");
+  }
+  let response: Response;
+  try {
+    response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(45000) });
+  } catch { throw new ProviderError("GrsAI 图片下载失败或超时，请重试。", 504); }
+  if (!response.ok || Number(response.headers.get("content-length")) > 25000000)
+    throw new ProviderError("GrsAI 图片获取失败或体积超限。");
+  const mime = (response.headers.get("content-type") || "").split(";")[0];
+  if (!["image/png", "image/jpeg", "image/webp"].includes(mime))
+    throw new ProviderError("GrsAI 返回的文件不是可用的 PNG/JPG/WEBP 图片。");
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength > 25000000) throw new ProviderError("GrsAI 图片体积超限。");
+  return "data:" + mime + ";base64," + Buffer.from(bytes).toString("base64");
+}
+
 export async function analyzeFont(
   provider: ProviderName,
   input: { image?: string; prompt?: string },
@@ -223,7 +291,30 @@ export async function analyzeFont(
   const apiKey = key(provider);
   let output: string;
   let model: string;
-  if (provider === "openai") {
+  if (provider === "grsai") {
+    model = requiredModel("GRSAI_ANALYSIS_MODEL");
+    const content: any[] = [
+      { type: "text", text: input.prompt || "请分析参考图的字体风格，并识别字符。" },
+    ];
+    if (input.image) {
+      splitImage(input.image);
+      content.push({ type: "image_url", image_url: { url: input.image } });
+    }
+    const data = await request(grsaiURL("/v1/chat/completions"), {
+      method: "POST",
+      headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        messages: [
+          { role: "system", content: FONT_ANALYSIS_PROMPT + " Output ONLY a valid JSON object that matches this schema: " + JSON.stringify(STYLE_SCHEMA) },
+          { role: "user", content },
+        ],
+      }),
+    }, 90000);
+    output = data?.choices?.[0]?.message?.content || "";
+    if (Array.isArray(output)) output = output.map((c: any) => c.text || "").join("");
+  } else if (provider === "openai") {
     model = requiredModel("OPENAI_ANALYSIS_MODEL");
     const content: any[] = [
       {
@@ -344,7 +435,7 @@ export async function generateGlyph(
 ) {
   return generateImage(
     provider,
-    (provider === "bailian" ? bailianReferencePrompt(character, style, !!image, !!characterReference) + "\n" : "") +
+    ((provider === "bailian" || provider === "grsai") ? bailianReferencePrompt(character, style, !!image, !!characterReference) + "\n" : "") +
     glyphPrompt(character, style, variation, instructions, characterReference ? (image ? "Image 1 is the overall lettering style reference. Image 2 is the correct target glyph structure reference; use it to fix missing or incorrect strokes while matching image 1 style." : "The attached image is the correct target glyph reference. Preserve its complete structure and follow the font style settings.") : "") + glyphReferenceInstructions(glyphReferences, 1 + Number(!!image) + Number(!!characterReference)) + feedbackInstructions(comments) + (annotationImage && !comments.length ? "\nThe LAST image is the current manually edited target glyph. Continue refining that outline; preserve its manual changes unless explicitly requested otherwise." : ""),
     style,
     [image, characterReference, glyphReferenceImage, annotationImage].filter((value): value is string => !!value),
@@ -368,7 +459,26 @@ async function generateImage(
   const apiKey = key(provider);
   let model: string;
   let result: string;
-  if (provider === "openai") {
+  if (provider === "grsai") {
+    model = requiredModel("GRSAI_IMAGE_MODEL");
+    // GrsAI new unified API, synchronous JSON mode. Reference images use data URLs.
+    images.forEach(splitImage);
+    const isBanana = model.startsWith("nano-banana");
+    const payload = {
+      model,
+      prompt,
+      images,
+      aspectRatio: isBanana ? "1:1" : size,
+      ...(isBanana ? { imageSize: "1K" } : { quality: "auto" }),
+      replyType: "json",
+    };
+    const data = await request(grsaiURL("/v1/api/generate"), {
+      method: "POST",
+      headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, 240000);
+    result = await grsaiImageResult(data);
+  } else if (provider === "openai") {
     model = requiredModel("OPENAI_IMAGE_MODEL");
     let data: any;
     if (images.length) {

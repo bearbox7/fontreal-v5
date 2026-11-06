@@ -99,8 +99,8 @@ export default function Studio() {
   const [reference, R] = useState(""),
     [prompt, P] = useState(""),
     [analysis, A] = useState<Analysis | null>(null);
-  const [provider, Q] = useState("openai"),
-    [status, T] = useState({ openai: false, gemini: false, bailian: false });
+  const [provider, Q] = useState("grsai"),
+    [status, T] = useState({ grsai: false, openai: false, gemini: false, bailian: false });
   const [chars, C] = useState({
     all: "",
     chinese: "",
@@ -2051,27 +2051,27 @@ export default function Studio() {
               <>
                 <div className="eyebrow">AI CONNECTION</div>
                 <h2>AI 服务设置</h2>
-                <p>OpenAI、Google Gemini 和阿里云百炼可独立配置；每次生成选择一个服务。密钥只保存在服务器。</p>
-                {(["openai", "gemini", "bailian"] as const).map((p) => (
+                <p>GrsAI、OpenAI、Google Gemini 和阿里云百炼可独立配置；每次生成选择一个服务。密钥只保存在服务器。</p>
+                {(["grsai", "openai", "gemini", "bailian"] as const).map((p) => (
                   <button
                     key={p}
                     className={"provider " + (provider === p ? "selected" : "")}
                     onClick={() => Q(p)}
                   >
                     <strong>
-                      {p === "openai" ? "OpenAI · GPT Image" : p === "gemini" ? "Google Gemini" : "阿里云百炼 · Qwen Image"}
+                      {p === "grsai" ? "GrsAI · 多模型图片生成" : p === "openai" ? "OpenAI · GPT Image" : p === "gemini" ? "Google Gemini" : "阿里云百炼 · Qwen Image"}
                     </strong>
                     <span className={"dot " + (status[p] ? "green" : "")} />
                     {status[p] ? "已配置" : "未配置"}
                   </button>
                 ))}
                 <div className="info-box">
-                  OpenAI GPT Image 支持 4K 大图批量测试和单字重绘；Gemini、阿里云百炼支持逐字生成、参考图分析和图片重绘。百炼暂不支持此处的 32/72 字整版批量生成。各家服务分别计费，绿点仅表示服务器已填写配置，不代表额度或权限已验证。
+                  GrsAI 支持逐字图片生成、参考图编辑及风格分析（通过官方统一生成接口）；OpenAI GPT Image 支持 4K 大图批量测试和单字重绘；Gemini、阿里云百炼支持逐字生成、参考图分析和图片重绘。32/72 字整版批量生成目前仅支持 OpenAI。各家服务分别计费，绿点仅表示服务器已填写配置，不代表额度或权限已验证。
                 </div>
                 <details>
                   <summary>开发者配置说明</summary>
                   <p>
-                    在 Render 中为所选平台设置对应的 <code>OPENAI_API_KEY</code>、<code>GEMINI_API_KEY</code> 或 <code>BAILIAN_API_KEY</code>，并配置各自的 <code>ANALYSIS_MODEL</code> 与 <code>IMAGE_MODEL</code> 后重新部署。百炼还需设置 <code>BAILIAN_BASE_URL</code>，使用与密钥所属地域相同的官方接口域名。建议设置 <code>STUDIO_PASSWORD</code> 避免公开网站产生意外费用。
+                    在 Render 中为所选平台设置对应的 <code>GRSAI_API_KEY</code>、<code>OPENAI_API_KEY</code>、<code>GEMINI_API_KEY</code> 或 <code>BAILIAN_API_KEY</code>，并配置各自的 <code>ANALYSIS_MODEL</code> 与 <code>IMAGE_MODEL</code> 后重新部署。GrsAI 使用 <code>GRSAI_BASE_URL=https://grsaiapi.com</code>。百炼还需设置 <code>BAILIAN_BASE_URL</code>，使用与密钥所属地域相同的官方接口域名。建议设置 <code>STUDIO_PASSWORD</code> 避免公开网站产生意外费用。
                   </p>
                 </details>
                 <button className="primary wide" onClick={() => U("")}>

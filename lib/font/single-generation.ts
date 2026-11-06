@@ -68,7 +68,7 @@ export async function runSingleGeneration(
       dependencies.phase?.("request", done, plan.characters.length, character);
       // Style image has priority; a second neutral skeleton guides only
       // target-character structure and prevents accidental glyph substitution.
-      const structureImage = input.provider === "bailian" && input.reference
+      const structureImage = (input.provider === "bailian" || input.provider === "grsai") && input.reference
         ? await dependencies.characterTemplate?.(character)
         : undefined;
       source = await dependencies.request({

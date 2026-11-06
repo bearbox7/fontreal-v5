@@ -23,7 +23,7 @@ export async function generateTestGlyphs(
     { text: characters, reference, provider, style, existing },
     {
       request: requestGlyph,
-      characterTemplate: provider === "bailian" && reference
+      characterTemplate: (provider === "bailian" || provider === "grsai") && reference
         ? (character) => glyphStructureTemplate(character, style)
         : undefined,
       trace: vectorizeDetailed,

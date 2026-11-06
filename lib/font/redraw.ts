@@ -1,4 +1,5 @@
 import { requestGlyph } from "./glyph-request";
+import { glyphStructureTemplate } from "./glyph-structure-template";
 import { vectorizeDetailed } from "./engine";
 import { resolveGlyphMentions } from "./glyph-mentions";
 import { feedbackImage, glyphReferenceImage } from "./glyph-feedback-image";
@@ -15,11 +16,17 @@ export async function redrawGlyph(input: {
   if(mentions.errors.length) throw Error(mentions.errors.join("；"));
   const pending = previous.pendingGeneration;
   const styleReference = input.reference || previous.sourceImage || "";
+  // Keep GrsAI reference-image redraws bound to the requested character.
+  // A manual target-character reference always takes precedence.
+  const structureReference = previous.redrawReference ||
+    (input.provider === "grsai" && styleReference
+      ? await glyphStructureTemplate(input.character, input.style) || ""
+      : "");
   const source = pending || await requestGlyph({
     provider:input.provider,character:input.character,style:input.style,
     ...(styleReference ? {image:styleReference}:{}),
     instructions:previous.redrawPrompt || "",
-    ...(previous.redrawReference ? {characterReference:previous.redrawReference}:{}),
+    ...(structureReference ? {characterReference:structureReference}:{}),
     ...(mentions.references.length ? {glyphReferences:mentions.references,glyphReferenceImage:await glyphReferenceImage(mentions.references.map(r=>r.character),input.style,input.edits)}:{}),
     ...((points.length || previous.manuallyEdited) ? {comments:points,annotationImage:await feedbackImage(input.character,input.style,input.edits,points)}:{}),
     variation:previous.version+1,
