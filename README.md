@@ -113,3 +113,28 @@ Qwen-Image 3.0 每次编辑最多支持 **3 张参考图片**。如果绘制时�
 ## 七、许可证与来源
 
 原包随附 `public/fonts/OFL-Sans.txt`、`public/fonts/OFL-Serif.txt`、`public/licenses/potrace-GPL-2.0.txt`。字体底库和导出的派生字体应遵守各自的许可条件。请勿擅自导入或分发未经许可的商业字体。
+
+
+## GrsAI 多模型 AI 服务（预览测试）
+
+GrsAI 作为独立 Provider 接入，不与 OpenAI/Gemini/百炼混用 API 密钥。前端「AI 服务设置」可选 **GrsAI · 多模型图片生成**；生成单字及参考图编辑走新版本统一图片接口，分析参考图走 GrsAI 兼容 Chat Completions 接口。
+
+在 Render 的 **Environment**（不要提交到 GitHub）添加以下变量：
+
+```dotenv
+GRSAI_API_KEY=你的GrsAI后台私密密钥
+GRSAI_BASE_URL=https://grsaiapi.com
+GRSAI_IMAGE_MODEL=gpt-image-2.6
+GRSAI_ANALYSIS_MODEL=gemini-3.1-pro
+```
+
+全球节点为 https://grsaiapi.com；如需中国国内节点，改为 https://grsai.dakka.com.cn。两者都只填写根域名，绝不填写 Dashboard 网页地址。模型名必须与当前 GrsAI 控制台已开通的模型相符；图像模型应支持参考图编辑，分析模型应支持多模态 Chat Completions。
+
+新版本图像接口是 `POST /v1/api/generate`，参数 `model,prompt,images,aspectRatio,replyType:"json"`。FontReal 目前按单张单字同步生成，若官方返回异步 `running`，会报明确提示而不会把任务误判为已完成。**不要直接请求 32/72 字批量模式**：该模式仍仅适用于直连 OpenAI。真实模型请求会消耗 GrsAI 积分，先用「永」单字试验。
+
+GrsAI 对外返回的图片 URL 仅从已核对的官方文档 CDN 下载并转为项目可持久保存的 base64；新 CDN 域名首次出现时需要核实并加入白名单。API Key 只在 Render 服务器端读取，避免密钥泄露；不要向 ChatGPT、浏览器控制台或 GitHub Commit 发送 API Key。
+
+文档：[GrsAI GPT Image 新版](https://qmy27nhsd9.apifox.cn/452409160e0) · [新版 Nano Banana](https://qmy27nhsd9.apifox.cn/452392911e0) · [Chat Completions](https://qmy27nhsd9.apifox.cn/452418916e0)。
+
+**部署安全原则：本分支仅供代码审查与模拟测试。未经预览/Render 验证，不合并 main、不触发正式 Cloudflare Pages、不修改 bearbox8。**
+
