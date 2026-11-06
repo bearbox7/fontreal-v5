@@ -2,6 +2,7 @@
 No paid AI generation or production deployment. Browser storage is temporary.
 """
 import json
+import os
 import re
 import sys
 import traceback
@@ -12,8 +13,8 @@ from urllib.parse import urlparse
 from fontTools.ttLib import TTFont
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
-PREVIEW="https://fontreal-ci-preview.fontreal.pages.dev"
-assert urlparse(PREVIEW).hostname=="fontreal-ci-preview.fontreal.pages.dev"
+PREVIEW=os.environ.get("FONTREAL_TEST_ORIGIN","https://fontreal-ci-preview.fontreal.pages.dev").rstrip("/")
+assert urlparse(PREVIEW).hostname in ("fontreal-ci-preview.fontreal.pages.dev","127.0.0.1")
 ok=[]
 bad=[]
 INFO={}
@@ -54,12 +55,14 @@ with sync_playwright() as pw:
     check("live Preview API /api/health",health)
 
     def mode():
+        if urlparse(PREVIEW).hostname=="127.0.0.1":
+            return "local backend, no Pages proxy applicable"
         r=context.request.get(PREVIEW+"/__fontreal_mode",timeout=45000)
         assert r.status==200,f"/__fontreal_mode HTTP {r.status}"
         v=r.json()
         assert v.get("mode")=="full-v5-proxy" and v.get("backendConfigured") is True,v
         return v
-    check("live Preview Proxy full-v5 mode",mode)
+    check("proxy mode (remote only)",mode)
 
     def assets():
         r=context.request.get(PREVIEW+"/fonts/sans-400.ttf",timeout=45000)
@@ -122,7 +125,7 @@ with sync_playwright() as pw:
         page.locator("nav button").filter(has_text="GB2312 国标字库").wait_for(timeout=45000)
         page.get_by_role("button",name="在线试字").wait_for(timeout=45000)
         return "React UI and main sections mounted"
-    check("live Preview frontend React hydration",frontend)
+    check("real frontend React hydration",frontend)
 
     def node_edit():
         page.get_by_role("button",name="字符工坊").click()
@@ -179,5 +182,5 @@ print("PASS",len(ok),"/",len(ok)+len(bad))
 for name in ok:print("  OK",name)
 for name,why in bad:print("  FAILED",name,repr(why))
 print("AI actual generation NOT CALLED (would consume API credits).")
-print("No production or bearbox8 changes.")
+print("No production or bearbox8 changes. Test origin:",PREVIEW)
 sys.exit(1 if bad else 0)
