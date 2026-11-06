@@ -1,4 +1,4 @@
-name: FontReal Preview real-browser E2E (no production changes)
+name: FontReal isolated browser E2E (no production changes)
 on:
   push:
     branches: [chore/fontreal-preview-e2e-20261106]
@@ -8,24 +8,48 @@ on:
 permissions:
   contents: read
 jobs:
-  preview-browser-smoke:
+  isolated-browser-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 18
+    env:
+      FONTREAL_TEST_ORIGIN: http://127.0.0.1:5173
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install isolated browser and font validators
+      - name: Install isolated app + font dependencies
         run: |
+          npm ci --no-audit --no-fund
           python -m pip install --disable-pip-version-check playwright fonttools
+          python -m pip install -r server_tools/requirements.txt
           python -m playwright install --with-deps chromium
-      - name: Test live fontreal Preview website (never Production)
+      - name: Start local FontReal app (not the live Preview site)
+        run: |
+          (npm run dev > /tmp/fontreal-next-dev.log 2>&1 &)
+          for i in $(seq 1 90); do
+            if curl --fail --silent --max-time 2 http://127.0.0.1:5173/api/health >/dev/null; then
+              echo 'Local application started and health check succeeded'
+              exit 0
+            fi
+            sleep 2
+          done
+          tail -100 /tmp/fontreal-next-dev.log
+          exit 1
+      - name: Real browser glyph editing and TTF/OTF download validity
         run: python tests/preview_browser_e2e.py
-      - name: Upload failure screenshot (if captured)
+      - name: Capture local app errors and failure screenshot
+        if: failure()
+        run: |
+          tail -100 /tmp/fontreal-next-dev.log || true
+      - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fontreal-preview-browser-diagnostic
+          name: fontreal-isolated-browser-diagnostic
           path: /tmp/fontreal-preview-e2e.png
           if-no-files-found: ignore
