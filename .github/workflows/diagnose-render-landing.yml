@@ -1,0 +1,56 @@
+name: Diagnose Render / FontReal preview landing pages (read-only)
+on:
+  push:
+    branches: [chore/diagnose-render-preview-page-20261106]
+    paths: [.github/workflows/diagnose-render-landing.yml]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect external landing page status (no credentials; no deployment)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import urllib.request, urllib.error, html, re, json
+          urls=[
+            "https://fontreal-ci-preview.fontreal.pages.dev/",
+            "https://72354b6e.fontreal.pages.dev/",
+            "https://fontreal-v5.onrender.com/",
+            "https://fontreal-ci-preview.fontreal.pages.dev/api/health",
+            "https://fontreal-ci-preview.fontreal.pages.dev/__fontreal_mode",
+          ]
+          for url in urls:
+              print("CHECK",url,flush=True)
+              req=urllib.request.Request(url,headers={
+                "User-Agent":"FontReal-readonly-diagnostics/1.0",
+                "Accept":"text/html,application/json",
+                "Cache-Control":"no-cache"})
+              try:
+                  with urllib.request.urlopen(req,timeout=80) as response:
+                      code=response.status
+                      headers=response.headers
+                      b=response.read(30000)
+              except urllib.error.HTTPError as e:
+                  code=e.code;headers=e.headers;b=e.read(30000)
+              except Exception as e:
+                  print("NETWORK_ERROR",type(e).__name__,flush=True);continue
+              title=re.search(rb'<title[^>]*>(.*?)</title>',b,re.I|re.S)
+              title=html.unescape(re.sub(r"\s+"," ",title.group(1).decode("utf8","replace")).strip())[:120] if title else ""
+              location=headers.get("Location") or ""
+              auth=headers.get("WWW-Authenticate") or ""
+              body=b.decode("utf8","replace")
+              print("HTTP",code,flush=True)
+              print("TITLE",title,flush=True)
+              print("LOCATION_IS_RENDER",("render.com" in location),flush=True)
+              print("BASIC_AUTH_REQUIRED",("Basic" in auth),flush=True)
+              print("BODY_RENDER_BRANDING",bool(re.search(r'<title[^>]*>[^<]*Render|spinning up|waking up|starting service',body,re.I)),flush=True)
+              if url.endswith(("/api/health","/__fontreal_mode")) and code==200:
+                  try:
+                      j=json.loads(body)
+                      print("API",json.dumps({k:j.get(k) for k in ("ok","app","mode","backendConfigured") if k in j}),flush=True)
+                  except: print("API_NOT_JSON",flush=True)
+          PY
